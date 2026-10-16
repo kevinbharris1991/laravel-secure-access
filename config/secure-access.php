@@ -31,6 +31,12 @@ return [
 
     'email_column' => 'email',
 
+    'registration' => [
+        // The host application must provide these policy pages.
+        'terms_url' => '/terms-of-service',
+        'privacy_url' => '/privacy-policy',
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Account Lockout

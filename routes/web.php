@@ -14,6 +14,11 @@ Route::middleware(config('secure-access.routes.middleware', ['web']))
     ->group(function () {
         Route::get('register', [RegistrationController::class, 'create'])->name('register');
         Route::post('register', [RegistrationController::class, 'store'])->middleware('throttle:secure-access')->name('register.store');
+        Route::get('register/sent', [RegistrationController::class, 'sent'])->name('register.sent');
+        Route::get('activate/{registration}', [RegistrationController::class, 'activate'])
+            ->middleware(['signed', 'throttle:secure-access'])->name('activate');
+        Route::post('activate/{registration}', [RegistrationController::class, 'complete'])
+            ->middleware(['signed', 'throttle:secure-access'])->name('activate.store');
 
         Route::get('login', [LoginController::class, 'create'])->name('login');
         Route::post('login', [LoginController::class, 'store'])->middleware('throttle:secure-access')->name('login.store');

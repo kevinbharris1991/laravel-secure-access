@@ -30,6 +30,8 @@ php artisan migrate
 
 The migrations add `username`, `failed_login_attempts` and `locked_at` columns to `users` (the `username`
 column is skipped if it already exists) and create the `user_emails` and `mfa_methods` tables.
+Registration also adds nullable `date_of_birth` and `gender` columns to the configured user table
+(existing columns are preserved) and creates `secure_access_registrations` for pending activations.
 
 Optionally add the trait to your `User` model for convenient relationships:
 
@@ -56,7 +58,10 @@ The package registers these routes (all names are prefixed with `secure-access.`
 | URL | Name | Purpose |
 | --- | --- | --- |
 | `GET /register` | `secure-access.register` | Account registration form |
-| `POST /register` | `secure-access.register.store` | Create an account and begin mandatory MFA enrollment |
+| `POST /register` | `secure-access.register.store` | Save profile details and email an activation link |
+| `GET /register/sent` | `secure-access.register.sent` | Check-email confirmation |
+| `GET /activate/{registration}` | `secure-access.activate` | Signed activation page for choosing credentials |
+| `POST /activate/{registration}` | `secure-access.activate.store` | Consume activation link and begin mandatory MFA enrollment |
 | `GET /login` | `secure-access.login` | Username / email + password form |
 | `POST /logout` | `secure-access.logout` | Log out |
 | `GET /login/mfa` | `secure-access.challenge` | Choose an MFA method during login |
@@ -84,20 +89,32 @@ login page, e.g. in `bootstrap/app.php`:
 
 ### Registration flow
 
-Visit `/register` to create an account. The form requires an email address, a confirmed password with
-at least 12 characters, mixed-case letters, numbers and symbols, and a name and username when those
-columns exist on the configured user model's table. Laravel's `Password::defaults()` rules are also
-applied, so stronger application-wide password rules are respected. Email and username inputs are trimmed, stored in
-lowercase, and checked case-insensitively for existing login identifiers, including verified additional
-email addresses. The `email_column`, `username_column`, and `user_model` settings are respected; request
-field names remain `email` and `username`. Custom tables must still provide defaults for any other
-required columns.
+1. Visit `/register` and enter a name, date of birth (a valid past date), email address, and gender.
+   Gender accepts free text. Users must also explicitly agree to both the Terms of Service and
+   Privacy Policy; both checkboxes are required and validated on the server before details are saved
+   or an email is sent. Provide those pages in the host application and configure
+   `registration.terms_url` and `registration.privacy_url` (defaults: `/terms-of-service` and
+   `/privacy-policy`). This saves a pending registration, **not a user account**, and emails an
+   activation link. Configure your application's Laravel mail transport before enabling registration.
+2. Open the emailed link, valid for **60 minutes**, on any browser. Choose a username and a confirmed
+   password with at least 12 characters, mixed-case letters, numbers and symbols. Laravel's
+   `Password::defaults()` rules also apply. The signed link is single-use and remains usable after
+   validation errors; simply opening it does not consume it. If it expires, register again.
+3. Submitting valid credentials creates the user, marks the primary email verified when the
+   `email_verified_at` column exists, and consumes the activation link. It **does not authenticate
+   the user or mark MFA verified**. The user is redirected to mandatory MFA setup.
+4. Prove possession of an MFA method to complete authentication and reach the configured dashboard.
+   If enrollment expires, log in with the new credentials to resume setup.
 
-Registration creates a user with a hashed password but **does not authenticate them or mark MFA verified**.
-It starts the same expiring pending session used after a successful password check and redirects to
-`secure-access.setup`. Only proving possession of an MFA method completes authentication and allows access
-to routes protected by `secure-access.mfa`. If enrollment expires, log in with the new credentials to
-resume setup. Registration does not mark the primary email address verified.
+Email and username inputs are trimmed, stored in lowercase, and checked case-insensitively for existing
+login identifiers, including verified additional email addresses. Availability is checked again during
+activation. The `email_column`, `username_column`, and `user_model` settings are respected; request field
+names remain `email` and `username`. If the user table has no username column, activation uses email and
+password instead. Name is collected on registration and saved to the user when its table has a `name`
+column. Custom tables must still provide defaults for any other required columns. Run the new migration
+before using registration. Expired pending registration records may be deleted from
+`secure_access_registrations` using their `expires_at` timestamp according to your retention policy;
+successfully activated records are deleted automatically.
 
 Routes use `routes.prefix` (empty by default), and registration submissions share the login per-IP
 throttle. The package does not add homepage navigation or unprefixed `login` / `register` route names.
