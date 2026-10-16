@@ -69,6 +69,9 @@ The package registers these routes (all names are prefixed with `secure-access.`
 | `GET /login/mfa` | `secure-access.challenge` | Choose an MFA method during login |
 | `GET /mfa/setup` | `secure-access.setup` | Register an MFA method (forced on first login) |
 | `GET /security` | `secure-access.security` | Manage MFA methods and additional email addresses |
+| `GET /access` | `secure-access.access.index` | Manage database groups, permissions and group grants |
+| `GET /invitations` | `secure-access.invitations.index` | Send registration invitations with preselected groups |
+| `POST /invitations` | `secure-access.invitations.store` | Email an expiring invitation code |
 
 Protect your application's routes with the `secure-access.mfa` middleware. It redirects guests to the login
 page, and any user that was authenticated without completing MFA in the current session (for example via a
@@ -118,6 +121,27 @@ login page, e.g. in `bootstrap/app.php`:
    pending session used after a successful password check and redirects to `secure-access.setup`. Only
    proving possession of an MFA method completes authentication, after which the user is sent to `home`
    (the dashboard). If enrollment expires, log in with the new credentials to resume setup.
+
+With ACL enabled, the first account successfully activated on an empty website receives
+`executive-director`. Later public registrations receive `guest`. Assignment happens in the
+account-creation transaction, not when the profile form is submitted. A database bootstrap
+record serializes activations and prevents reassigning executive access after all registered
+accounts are deleted. Existing accounts prevent first-user elevation.
+
+### Staff invitations
+
+After completing MFA, an `administrative-director` or `executive-director` can visit
+`/invitations`, enter the new member's email, select one or more database groups, and send
+an invitation. This requires the exact `invitations.create_all` permission; revoking its
+database grant immediately removes the ability to invite. Invitation senders may select
+any group, including administrative groups, so delegate this permission only to trusted staff.
+
+The recipient enters the emailed code in the optional **Invitation code** field at `/register`
+using the same email address. Normal age, consent, email activation and mandatory MFA requirements
+still apply. On successful activation, the selected groups replace the normal Guest assignment.
+Publicly submitted group IDs are ignored. Codes are random, stored only as hashes, expire after
+seven days and are consumed atomically with account creation. Expired, consumed or deleted
+invitations and deleted invitation groups prevent activation rather than silently assigning Guest.
 
 Routes use `routes.prefix` (empty by default), and registration submissions share the login per-IP
 throttle. The package does not add homepage navigation or unprefixed `login` / `register` route names.
@@ -206,24 +230,30 @@ See [`config/secure-access.php`](config/secure-access.php) for all options, incl
 - `home` – where users are redirected after logging in (default `/dashboard`)
 - `username_column`, `email_column`, `user_model`, `guard`
 
-## Optional group-based authorization
+## Database group-based authorization
 
-ACL is an additional, **opt-in** layer. It does not change authentication, MFA,
-registration, existing routes, or `HasSecureAccess`. No groups are assigned and no
-camp data is seeded automatically.
+ACL is enabled by default. Groups, permission scopes, grants and memberships are stored
+in the database; there is no `config/secure-access-camp.php` runtime configuration.
+Migrations initialize the twelve camp groups and their permissions once. Authentication
+and mandatory MFA remain separate from authorization.
 
 ### Enable and assign permissions
 
-Publish the package configuration with
-`php artisan vendor:publish --tag=secure-access-config`, set `enabled` to `true` in
-`config/secure-access-acl.php`, clear/rebuild any configuration cache, then run
-`php artisan migrate`. The four namespaced ACL tables are loaded only when enabled:
+Run `php artisan migrate` to initialize ACL. Existing installations that previously
+disabled ACL must set `enabled` to `true` in `config/secure-access-acl.php`, clear/rebuild
+their configuration cache, then migrate. The four namespaced ACL tables are loaded only when enabled:
 groups, permissions, group grants, and polymorphic user memberships. User IDs may be
 integer or string/UUID identifiers (up to 64 characters). No changes to the users
 table are required.
 
 Add `SecureAccess\Concerns\HasAccessGroups` to your Eloquent authenticatable model
-alongside any existing traits. Create groups/grants in trusted administrative code:
+alongside any existing traits for convenient membership relationships. Registration assignment
+also works without this trait. Visit `/access` to create, edit or delete database groups and
+permissions and update group grants. Group operations require `groups.manage_all`; permission
+operations require `permissions.manage_all`; changing grants requires both. The Executive
+Director initially has both permissions. The `executive-director` and `guest` keys are
+reserved for registration; their display names and grants remain editable. Administrative
+operations require MFA and CSRF-protected forms. You can also manage records in trusted code:
 
 ```php
 use SecureAccess\Models\AccessGroup;
@@ -368,25 +398,25 @@ Blade supports both package and standard Gate conditionals:
 `@elsesecureAccess(...)` and `@else` are supported by the package conditional.
 Neither dashboard nor Blade checks undo data already loaded by a controller.
 
-### Optional camp preset: 12 groups
+### Initial camp data: 12 groups
 
-Review/publish `config/secure-access-camp.php`, enable ACL, migrate, then run:
+Migrations initialize the built-in definitions in the database. The compatibility command
+can initialize an empty ACL database:
 
 ```bash
 php artisan secure-access:seed-camp
 ```
 
-The command is transactional and idempotent. It adds missing groups, permissions,
-and grants, preserves existing names/custom grants, rejects conflicting permission
-scopes, and **never changes user memberships**. Re-running restores preset grants
-that were removed; edit the published preset before re-seeding to customize it.
+Initialization is transactional and **never changes user memberships**. Existing database
+customizations are authoritative; re-running the command does not restore revoked grants.
+Manage groups and permissions in `/access`, not a configuration file.
 It can also be invoked from a host application's seeder via
 `app(SecureAccess\Authorization\CampPreset::class)->seed()`.
 
 | # | Group | Representative grants / boundaries |
 |---|---|---|
 | 1 | Executive Director | System/audit read, executive users, aggregate camper/incident reports, financials, grant approval, public/board content; no raw clinical grant |
-| 2 | Administrative Directors | Staff/groups/credentials, rosters/cabins/policies, administrative intake, compliance and exports |
+| 2 | Administrative Director (`administrative-director`) | Staff/groups/credentials, invitations, rosters/cabins/policies, administrative intake, compliance and exports |
 | 3 | Medical & Nursing Staff | Medications/dosages/stock, health profiles/protocols, clinical incidents; no finance/content grants |
 | 4 | Behavioral Support Services | Support plans, behavior logs, limited health context read-only, consultation notes |
 | 5 | Accessibility & Adaptive Services | Accommodation read/update, adaptive equipment, facility audits, accessibility work orders |
@@ -403,10 +433,11 @@ Guest grant applications use `grant_applications.create_own`, `read_own`,
 read another guest's application or approve applications. Enforce workflow rules
 such as locking submitted applications in your policies.
 
-No automatic first-user Executive Director or subsequent-user Guest assignment is
-included. Bootstrap the director explicitly through trusted provisioning code, then
-attach Guest in your application's verified account-creation flow if desired.
-Never infer executive authority from a user count in a public registration request.
+Automatic assignments apply to the package's verified activation flow, not arbitrary
+user-model creation. For existing websites, provision administrative membership through
+trusted code. To retain authentication without ACL, set `enabled` to `false` in
+`config/secure-access-acl.php`; registrations then do not assign groups, and ACL management
+and invitation endpoints deny access.
 The preset grants are additive: assigning multiple groups combines their access,
 so department boundaries depend on appropriate membership administration, not
 explicit deny rules.

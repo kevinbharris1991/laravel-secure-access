@@ -4,10 +4,10 @@ namespace SecureAccess\Tests\Feature;
 
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Route;
 use SecureAccess\Authorization\AccessControl;
-use SecureAccess\Authorization\CampPreset;
 use SecureAccess\Authorization\ScopeContext;
 use SecureAccess\Dashboard\Dashboard;
 use SecureAccess\Dashboard\DashboardItem;
@@ -22,6 +22,7 @@ class AccessControlTest extends TestCase
     {
         parent::defineEnvironment($app);
 
+        // ACL is enabled by default
         $app['config']->set('secure-access-acl.enabled', true);
     }
 
@@ -32,6 +33,76 @@ class AccessControlTest extends TestCase
         $group->permissions()->syncWithoutDetaching([$permission->id]);
 
         return $group;
+    }
+
+    public function test_acl_is_enabled_by_default_and_loads_migrations(): void
+    {
+        // Verify ACL is enabled by default
+        $this->assertTrue(config('secure-access-acl.enabled'));
+
+        // Verify tables exist (migration creates them)
+        $this->assertDatabaseHas('secure_access_permissions', []);
+        $this->assertDatabaseHas('secure_access_groups', []);
+    }
+
+    public function test_migration_initializes_default_camp_groups_and_permissions(): void
+    {
+        // The migration should have seeded exactly 12 default groups
+        $this->assertDatabaseCount('secure_access_groups', 12);
+
+        // Verify specific groups were created
+        $this->assertDatabaseHas('secure_access_groups', ['key' => 'executive-director']);
+        $this->assertDatabaseHas('secure_access_groups', ['key' => 'administrative-director']);
+        $this->assertDatabaseHas('secure_access_groups', ['key' => 'guest']);
+
+        // Verify permissions exist
+        $this->assertTrue(Permission::where('key', 'system.read_all')->exists());
+        $this->assertTrue(Permission::where('key', 'users.manage_all')->exists());
+    }
+
+    public function test_default_groups_have_bootstrap_permissions(): void
+    {
+        $executiveDirector = AccessGroup::where('key', 'executive-director')->firstOrFail();
+        $administrativeDirector = AccessGroup::where('key', 'administrative-director')->firstOrFail();
+
+        // Both should have invitations.create_all
+        $this->assertTrue($executiveDirector->permissions()->where('key', 'invitations.create_all')->exists());
+        $this->assertTrue($administrativeDirector->permissions()->where('key', 'invitations.create_all')->exists());
+
+        // Executive director should have group and permission management
+        $this->assertTrue($executiveDirector->permissions()->where('key', 'groups.manage_all')->exists());
+        $this->assertTrue($executiveDirector->permissions()->where('key', 'permissions.manage_all')->exists());
+
+        // Administrative director should have group management but not permission management
+        $this->assertTrue($administrativeDirector->permissions()->where('key', 'groups.manage_all')->exists());
+        $this->assertFalse($administrativeDirector->permissions()->where('key', 'permissions.manage_all')->exists());
+    }
+
+    public function test_migration_grants_bootstrap_permissions_to_existing_groups(): void
+    {
+        $user = $this->createUser();
+        $administrator = AccessGroup::where('key', 'administrative-director')->sole();
+        $administrator->update(['key' => 'administrative-directors']);
+        $user->accessGroups()->attach($administrator);
+        Permission::whereIn('key', ['invitations.create_all', 'permissions.manage_all'])->delete();
+        $administrator->permissions()->detach(Permission::where('key', 'groups.manage_all')->value('id'));
+        $custom = $this->grant('custom.read_all', 'all', 'administrative-directors');
+
+        $migration = require __DIR__.'/../../database/acl-migrations/2024_01_01_000007_initialize_camp_access.php';
+        $migration->up();
+
+        $executiveDirector = AccessGroup::where('key', 'executive-director')->firstOrFail();
+        $this->assertTrue($executiveDirector->permissions()->where('key', 'invitations.create_all')->exists());
+        $this->assertTrue($executiveDirector->permissions()->where('key', 'groups.manage_all')->exists());
+        $this->assertTrue($executiveDirector->permissions()->where('key', 'permissions.manage_all')->exists());
+
+        $administrativeDirector = AccessGroup::where('key', 'administrative-director')->firstOrFail();
+        $this->assertTrue($administrativeDirector->permissions()->where('key', 'invitations.create_all')->exists());
+        $this->assertFalse($administrativeDirector->permissions()->where('key', 'groups.manage_all')->exists());
+        $this->assertFalse($administrativeDirector->permissions()->where('key', 'permissions.manage_all')->exists());
+        $this->assertSame($custom->id, $administrativeDirector->id);
+        $this->assertTrue($user->hasAccessPermission('custom.read_all'));
+        $this->assertSame(['administrative-director'], $user->accessGroups()->pluck('key')->all());
     }
 
     public function test_effective_permissions_are_the_union_of_current_memberships(): void
@@ -118,29 +189,114 @@ class AccessControlTest extends TestCase
         $this->assertFalse($user->hasAccessPermission('reports.read_all'));
     }
 
-    public function test_preset_is_idempotent_and_never_assigns_users_or_removes_custom_grants(): void
+    public function test_seed_command_only_initializes_empty_database(): void
+    {
+        // DB is already seeded by migration; verify it's populated
+        $initialGroupCount = AccessGroup::count();
+        $this->assertGreaterThan(0, $initialGroupCount);
+
+        // Running seed-camp command should do nothing (DB not empty)
+        $this->artisan('secure-access:seed-camp')->assertSuccessful();
+
+        // Count should not change
+        $this->assertSame($initialGroupCount, AccessGroup::count());
+    }
+
+    public function test_seeding_never_removes_existing_grants(): void
+    {
+        // DB is already seeded; add a custom permission and grant
+        $customPerm = Permission::create(['key' => 'custom.action_all', 'scope' => 'all']);
+        $guestGroup = AccessGroup::where('key', 'guest')->firstOrFail();
+        $guestGroup->permissions()->attach($customPerm);
+
+        $initialGrantCount = \Illuminate\Support\Facades\DB::table('secure_access_group_grants')->count();
+
+        // Run seed-camp command (should do nothing since DB is not empty)
+        $this->artisan('secure-access:seed-camp')->assertSuccessful();
+
+        // The custom grant should still exist
+        $this->assertDatabaseHas('secure_access_group_grants', [
+            'group_id' => $guestGroup->id,
+            'permission_id' => $customPerm->id,
+        ]);
+
+        // Grant count should be unchanged
+        $this->assertSame($initialGrantCount, \Illuminate\Support\Facades\DB::table('secure_access_group_grants')->count());
+    }
+
+    public function test_seeding_fails_gracefully_when_acl_disabled(): void
+    {
+        config(['secure-access-acl.enabled' => false]);
+
+        $this->artisan('secure-access:seed-camp')->assertFailed();
+    }
+
+    public function test_existing_database_remains_untouched(): void
+    {
+        // Verify default data is present
+        $guestGroup = AccessGroup::where('key', 'guest')->firstOrFail();
+        $initialGrantCount = $guestGroup->permissions()->count();
+
+        // Remove a permission from guest group
+        $permission = Permission::where('key', 'bookings.create_own')->firstOrFail();
+        $guestGroup->permissions()->detach($permission->id);
+
+        $afterRemoveCount = $guestGroup->permissions()->count();
+        $this->assertLessThan($initialGrantCount, $afterRemoveCount);
+
+        // Run seed-camp command (should not restore the removed permission)
+        $this->artisan('secure-access:seed-camp')->assertSuccessful();
+
+        // The permission should still be removed
+        $this->assertFalse($guestGroup->permissions()->where('id', $permission->id)->exists());
+        $this->assertSame($afterRemoveCount, $guestGroup->permissions()->count());
+    }
+
+    public function test_migration_does_not_broaden_scoped_permissions(): void
+    {
+        $permission = Permission::where('key', 'invitations.create_all')->sole();
+        $permission->groups()->detach();
+        $permission->update(['scope' => 'own']);
+        $migration = require __DIR__.'/../../database/acl-migrations/2024_01_01_000007_initialize_camp_access.php';
+        $migration->up();
+
+        $this->assertSame('own', $permission->fresh()->scope);
+        $this->assertSame(0, $permission->groups()->count());
+    }
+
+    public function test_migration_merges_legacy_memberships_and_grants_without_duplicates(): void
     {
         $user = $this->createUser();
-        $this->artisan('secure-access:seed-camp')->assertSuccessful();
-        $this->assertDatabaseCount('secure_access_groups', 12);
-        $this->assertDatabaseCount('secure_access_memberships', 0);
-        $permissionCount = Permission::count();
-        $custom = $this->grant('custom.read_all', 'all', 'guest');
-        $user->accessGroups()->attach($custom);
+        $legacy = $this->grant('custom.read_all', 'all', 'administrative-directors');
+        $current = AccessGroup::where('key', 'administrative-director')->sole();
+        $user->accessGroups()->attach([$legacy->id, $current->id]);
+        $migration = require __DIR__.'/../../database/acl-migrations/2024_01_01_000007_initialize_camp_access.php';
+        $migration->up();
 
-        $this->artisan('secure-access:seed-camp')->assertSuccessful();
-        $this->assertSame($permissionCount + 1, Permission::count());
-        $this->assertDatabaseCount('secure_access_groups', 12);
-        $this->assertDatabaseCount('secure_access_memberships', 1);
+        $this->assertDatabaseMissing('secure_access_groups', ['key' => 'administrative-directors']);
+        $this->assertSame(['administrative-director'], $user->accessGroups()->pluck('key')->all());
         $this->assertTrue($user->hasAccessPermission('custom.read_all'));
+        $this->assertSame(1, DB::table('secure_access_memberships')->where('member_id', (string) $user->id)->count());
+    }
 
-        config(['secure-access-acl.enabled' => false]);
-        $this->artisan('secure-access:seed-camp')->assertFailed();
+    public function test_upgrade_adds_registration_groups_to_a_custom_acl_without_restoring_other_defaults(): void
+    {
+        AccessGroup::query()->delete();
+        Permission::query()->delete();
+        $custom = $this->grant('custom.read_all', 'all', 'custom');
+        $migration = require __DIR__.'/../../database/acl-migrations/2024_01_01_000007_initialize_camp_access.php';
+        $migration->up();
+
+        $this->assertDatabaseHas('secure_access_groups', ['key' => 'executive-director']);
+        $this->assertDatabaseHas('secure_access_groups', ['key' => 'guest']);
+        $this->assertDatabaseCount('secure_access_groups', 4);
+        $this->assertTrue($custom->permissions()->where('key', 'custom.read_all')->exists());
+        $this->assertFalse(Permission::where('key', 'clinical_incidents.manage_all')->exists());
     }
 
     public function test_guest_grant_applications_are_owned_and_cannot_be_approved_or_read_globally(): void
     {
-        app(CampPreset::class)->seed();
+        // Use pre-seeded guest group
         $guest = $this->createUser();
         $group = AccessGroup::where('key', 'guest')->firstOrFail();
         $guest->accessGroups()->attach($group);
@@ -158,22 +314,6 @@ class AccessControlTest extends TestCase
         $this->assertFalse($guest->hasAccessPermission('grant_applications.approve_all', $own));
         $this->assertFalse($guest->hasAccessPermission('clinical_incidents.manage_all'));
         $this->assertFalse($guest->hasAccessPermission('groups.manage_all'));
-    }
-
-    public function test_preset_rejects_conflicting_scopes_without_partial_seeding(): void
-    {
-        Permission::create(['key' => 'grant_applications.read_own', 'scope' => 'all']);
-
-        try {
-            app(CampPreset::class)->seed();
-            $this->fail('A conflicting scope must not be silently broadened.');
-        } catch (\LogicException $e) {
-            $this->assertStringContainsString('Conflicting scope', $e->getMessage());
-        }
-
-        $this->assertDatabaseCount('secure_access_groups', 0);
-        $this->assertDatabaseCount('secure_access_group_grants', 0);
-        $this->assertDatabaseCount('secure_access_permissions', 1);
     }
 
     public function test_dashboard_filters_before_executing_data_callbacks_and_preserves_keys(): void

@@ -7,6 +7,7 @@
     <p class="sa-text sa-mb-4">{{ __('Welcome, :name! Choose your sign-in details for :email.', ['name' => $registration->name, 'email' => $registration->email]) }}</p>
 
     @include('secure-access::partials.errors', ['messages' => $errors->get('email')])
+    @include('secure-access::partials.errors', ['messages' => $errors->get('invitation_code')])
 
     <form method="POST" action="{{ $action }}" enctype="multipart/form-data">
         @csrf

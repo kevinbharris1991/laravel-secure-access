@@ -9,6 +9,15 @@ use SecureAccess\Models\Permission;
 
 class CampPreset
 {
+    /**
+     * Seed the database with default camp groups and permissions.
+     *
+     * This method ONLY seeds entirely empty databases (no groups and no permissions).
+     * On subsequent runs or in existing installations, it returns immediately without
+     * making changes. The database is the authoritative source once initialized.
+     *
+     * @throws LogicException
+     */
     public function seed(): void
     {
         if (! config('secure-access-acl.enabled')) {
@@ -16,8 +25,12 @@ class CampPreset
         }
 
         DB::transaction(function () {
-            foreach (config('secure-access-camp.groups', []) as $key => $definition) {
-                $group = AccessGroup::firstOrCreate(['key' => $key], ['name' => $definition['name']]);
+            if (AccessGroup::exists() || Permission::exists()) {
+                return;
+            }
+
+            foreach (CampDefaults::groups() as $key => $definition) {
+                $group = AccessGroup::create(['key' => $key, 'name' => $definition['name']]);
 
                 foreach ($definition['permissions'] as $permissionKey) {
                     $scope = match (true) {
@@ -25,13 +38,10 @@ class CampPreset
                         str_ends_with($permissionKey, '_assigned') => 'assigned',
                         default => 'all',
                     };
+
                     $permission = Permission::firstOrCreate(['key' => $permissionKey], ['scope' => $scope]);
 
-                    if ($permission->scope !== $scope) {
-                        throw new LogicException('Conflicting scope for camp permission: '.$permissionKey);
-                    }
-
-                    $group->permissions()->syncWithoutDetaching([$permission->id]);
+                    $group->permissions()->attach($permission->id);
                 }
             }
         });

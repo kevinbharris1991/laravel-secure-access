@@ -18,6 +18,8 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\ValidationException;
 use SecureAccess\Models\PendingRegistration;
+use SecureAccess\Models\AccessGroup;
+use SecureAccess\Models\RegistrationInvitation;
 use SecureAccess\Models\UserEmail;
 use SecureAccess\Notifications\ActivateAccount;
 use SecureAccess\SecureAccess;
@@ -91,6 +93,7 @@ class RegistrationController extends Controller
             'gender' => ['required', 'string', Rule::in(array_map('strval', array_keys($this->genders())))],
             'terms' => ['accepted'],
             'privacy' => ['accepted'],
+            'invitation_code' => ['nullable', 'string', 'size:64'],
         ], [
             'date_of_birth.date_format' => __('Please enter a valid date of birth.'),
             'date_of_birth.after_or_equal' => __('Please enter a valid date of birth.'),
@@ -98,11 +101,28 @@ class RegistrationController extends Controller
             'privacy.accepted' => __('You must acknowledge that you have read and understand the Privacy Policy.'),
         ]);
 
+        $invitation = null;
+        if (! empty($validated['invitation_code'])) {
+            $invitation = config('secure-access-acl.enabled')
+                ? RegistrationInvitation::query()->where('token', PendingRegistration::hashToken($validated['invitation_code']))->first()
+                : null;
+
+            if (! $invitation || ! $invitation->usableFor($validated['email'])) {
+                throw ValidationException::withMessages(['invitation_code' => __('This invitation is invalid or has expired.')]);
+            }
+        }
+
         $existing = PendingRegistration::query()->where('email', $validated['email'])->first();
         $resendAfter = max(0, (int) config('secure-access.registration.resend_after', 60));
 
         // Avoid flooding an inbox (or repeatedly invalidating its link) through repeated submissions.
         if ($existing && $existing->updated_at?->greaterThan(now()->subSeconds($resendAfter))) {
+            // Keep the existing activation link, but honor a newly supplied invitation code.
+            if ($invitation) {
+                DB::table($existing->getTable())->where('id', $existing->getKey())
+                    ->update(['invitation_id' => $invitation->getKey()]);
+            }
+
             return redirect()->route('secure-access.register.sent')->with('registration_email', $existing->email);
         }
 
@@ -120,6 +140,7 @@ class RegistrationController extends Controller
             'token' => PendingRegistration::hashToken($token),
             'terms_accepted_at' => now(),
             'privacy_policy_accepted_at' => now(),
+            'invitation_id' => $invitation?->getKey() ?? $existing?->invitation_id,
         ]);
 
         Notification::route('mail', $registration->email)->notify(new ActivateAccount($registration, $token));
@@ -201,13 +222,53 @@ class RegistrationController extends Controller
         );
 
         try {
-            $user = DB::transaction(function () use ($pending, $validated, $usernameColumn, $photo) {
+            $user = DB::transaction(function () use ($pending, $validated, $usernameColumn, $photo, $token) {
+                // Serialize account creation even when the user table is empty.
+                $state = DB::table('secure_access_registration_state')->where('id', 1)->lockForUpdate()->first();
+                $model = SecureAccess::userModel();
+                $first = ! $state->claimed && ! (new $model)->newQueryWithoutScopes()->exists();
+
+                $pending = PendingRegistration::query()->whereKey($pending->getKey())->lockForUpdate()->first();
+                if (! $pending || ! $pending->tokenMatches($token)) {
+                    return null;
+                }
+
                 // Consuming the registration atomically makes the activation link single-use.
                 if (PendingRegistration::query()->whereKey($pending->getKey())->delete() !== 1) {
                     return null;
                 }
 
-                return $this->createUser($pending, $validated, $usernameColumn, $photo ?: null);
+                $groups = [];
+                if ($pending->invitation_id !== null) {
+                    $invitation = RegistrationInvitation::query()->whereKey($pending->invitation_id)->lockForUpdate()->first();
+                    if (! config('secure-access-acl.enabled') || ! $invitation || ! $invitation->usableFor($pending->email)) {
+                        throw ValidationException::withMessages(['invitation_code' => __('This invitation is invalid or has expired. Please register again.')]);
+                    }
+
+                    $groups = AccessGroup::query()->whereIn('id', $invitation->group_ids)->lockForUpdate()->pluck('id')->all();
+                    if (count($groups) !== count($invitation->group_ids) || $groups === []) {
+                        throw ValidationException::withMessages(['invitation_code' => __('The invitation groups have changed. Please request a new invitation.')]);
+                    }
+                    $invitation->forceFill(['accepted_at' => now()])->save();
+                }
+
+                $user = $this->createUser($pending, $validated, $usernameColumn, $photo ?: null);
+                if (config('secure-access-acl.enabled')) {
+                    if ($first || $groups === []) {
+                        $default = AccessGroup::query()->where('key', $first ? 'executive-director' : 'guest')->firstOrFail();
+                        $groups = [$default->id];
+                    }
+                    foreach ($groups as $groupId) {
+                        DB::table('secure_access_memberships')->insert([
+                            'group_id' => $groupId,
+                            'member_type' => $user->getMorphClass(),
+                            'member_id' => (string) $user->getKey(),
+                        ]);
+                    }
+                }
+                DB::table('secure_access_registration_state')->where('id', 1)->update(['claimed' => true]);
+
+                return $user;
             });
         } catch (UniqueConstraintViolationException) {
             $this->deletePhoto($photo);

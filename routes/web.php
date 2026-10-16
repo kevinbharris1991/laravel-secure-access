@@ -6,6 +6,8 @@ use SecureAccess\Http\Controllers\LoginController;
 use SecureAccess\Http\Controllers\RegistrationController;
 use SecureAccess\Http\Controllers\SecurityController;
 use SecureAccess\Http\Controllers\SetupController;
+use SecureAccess\Http\Controllers\InvitationController;
+use SecureAccess\Http\Controllers\AccessManagementController;
 use SecureAccess\Models\MfaMethod;
 
 Route::middleware(config('secure-access.routes.middleware', ['web']))
@@ -41,6 +43,18 @@ Route::middleware(config('secure-access.routes.middleware', ['web']))
         Route::post('mfa/setup/{type}', [SetupController::class, 'store'])->whereIn('type', MfaMethod::TYPES)->middleware('throttle:secure-access')->name('setup.store');
 
         Route::middleware('secure-access.mfa')->group(function () {
+            Route::get('invitations', [InvitationController::class, 'index'])->name('invitations.index');
+            Route::post('invitations', [InvitationController::class, 'store'])->middleware('throttle:secure-access')->name('invitations.store');
+            Route::get('access', [AccessManagementController::class, 'index'])->name('access.index');
+            Route::middleware('throttle:secure-access')->prefix('access')->name('access.')->group(function () {
+                Route::post('groups', [AccessManagementController::class, 'storeGroup'])->name('groups.store');
+                Route::put('groups/{group}', [AccessManagementController::class, 'updateGroup'])->name('groups.update');
+                Route::delete('groups/{group}', [AccessManagementController::class, 'destroyGroup'])->name('groups.destroy');
+                Route::put('groups/{group}/permissions', [AccessManagementController::class, 'syncGroupPermissions'])->name('groups.permissions');
+                Route::post('permissions', [AccessManagementController::class, 'storePermission'])->name('permissions.store');
+                Route::put('permissions/{permission}', [AccessManagementController::class, 'updatePermission'])->name('permissions.update');
+                Route::delete('permissions/{permission}', [AccessManagementController::class, 'destroyPermission'])->name('permissions.destroy');
+            });
             Route::get('security', [SecurityController::class, 'index'])->name('security');
             Route::delete('security/mfa/{method}', [SecurityController::class, 'destroyMethod'])->name('methods.destroy');
             Route::post('security/emails', [SecurityController::class, 'storeEmail'])->middleware('throttle:secure-access')->name('emails.store');

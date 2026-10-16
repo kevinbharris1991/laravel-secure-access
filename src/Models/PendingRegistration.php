@@ -33,6 +33,7 @@ class PendingRegistration extends Model
         'token',
         'terms_accepted_at',
         'privacy_policy_accepted_at',
+        'invitation_id',
     ];
 
     protected $hidden = ['token'];
