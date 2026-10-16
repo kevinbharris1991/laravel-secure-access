@@ -97,7 +97,8 @@ login page, e.g. in `bootstrap/app.php`:
    stored. The email address is trimmed, lowercased and must not already be used by any account (including
    verified additional addresses). Gender options come from `registration.genders`.
 2. **Activation email.** The details are kept in `pending_registrations` (no user is created yet) and an
-   activation link is emailed. The link is signed, expires after `registration.activation_expires` minutes
+   activation link is emailed with a cryptographically random, 64-character activation slug (`{token}`).
+   Only its SHA-256 hash is stored. The link is signed, expires after `registration.activation_expires` minutes
    (default `60`) and can be used once; registering again with the same address replaces the details and
    invalidates earlier links (at most once every `registration.resend_after` seconds, default `60`). Expired rows can be removed with
    `php artisan model:prune --model="SecureAccess\Models\PendingRegistration"`.
@@ -111,6 +112,10 @@ login page, e.g. in `bootstrap/app.php`:
    respected; optional columns (`name`, `date_of_birth`, `gender`, `profile_photo_path`, consent
    timestamps, `email_verified_at`) are only written when they exist. Custom tables must still provide
    defaults for any other required columns.
+   If the configured primary email column is absent from the user table (or `email_column` is `null`),
+   activation stores the address in `user_emails` with `verified_at` set. Registration checks and email
+   login use verified `user_emails` addresses without querying the missing column. An existing unverified
+   claim is replaced only after the address owner completes activation.
 4. **MFA.** Activation **does not authenticate the user or mark MFA verified**. It starts the same expiring
    pending session used after a successful password check and redirects to `secure-access.setup`. Only
    proving possession of an MFA method completes authentication, after which the user is sent to `home`

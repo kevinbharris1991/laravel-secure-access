@@ -18,6 +18,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\ValidationException;
 use SecureAccess\Models\PendingRegistration;
+use SecureAccess\Models\UserEmail;
 use SecureAccess\Notifications\ActivateAccount;
 use SecureAccess\SecureAccess;
 use SecureAccess\Support\PendingLogin;
@@ -224,11 +225,15 @@ class RegistrationController extends Controller
     {
         $model = SecureAccess::userModel();
         $user = new $model;
+        $emailColumn = $this->users->emailColumn();
 
         $attributes = [
-            config('secure-access.email_column', 'email') => $pending->email,
             $user->getAuthPasswordName() => Hash::make($validated['password']),
         ];
+
+        if ($emailColumn) {
+            $attributes[$emailColumn] = $pending->email;
+        }
 
         if ($usernameColumn) {
             $attributes[$usernameColumn] = $validated['username'];
@@ -255,6 +260,16 @@ class RegistrationController extends Controller
         }
 
         $user->forceFill($attributes)->save();
+
+        if (! $emailColumn) {
+            // Ownership was proved by activation; discard any unverified claim of this address.
+            UserEmail::query()->where('email', $pending->email)->whereNull('verified_at')->delete();
+            UserEmail::create([
+                'user_id' => $user->getKey(),
+                'email' => $pending->email,
+                'verified_at' => now(),
+            ]);
+        }
 
         return $user;
     }

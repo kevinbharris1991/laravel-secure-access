@@ -30,7 +30,9 @@ class UserResolver
             return null;
         }
 
-        if ($user = $this->whereLower(config('secure-access.email_column', 'email'), $identifier)->first()) {
+        $emailColumn = $this->emailColumn();
+
+        if ($emailColumn && ($user = $this->whereLower($emailColumn, $identifier)->first())) {
             return $user;
         }
 
@@ -49,9 +51,20 @@ class UserResolver
     public function emailInUse(string $email): bool
     {
         $email = mb_strtolower(trim($email));
+        $emailColumn = $this->emailColumn();
 
         return UserEmail::query()->where('email', $email)->whereNotNull('verified_at')->exists()
-            || $this->whereLower(config('secure-access.email_column', 'email'), $email)->exists();
+            || ($emailColumn && $this->whereLower($emailColumn, $email)->exists());
+    }
+
+    public function emailColumn(): ?string
+    {
+        $column = config('secure-access.email_column', 'email');
+        $model = SecureAccess::newUserQuery()->getModel();
+
+        return $column && $model->getConnection()->getSchemaBuilder()->hasColumn($model->getTable(), $column)
+            ? $column
+            : null;
     }
 
     public function usernameColumn(): ?string

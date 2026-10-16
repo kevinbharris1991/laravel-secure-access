@@ -11,7 +11,9 @@ use Illuminate\Validation\Rules\Password;
 use SecureAccess\Models\PendingRegistration;
 use SecureAccess\Models\UserEmail;
 use SecureAccess\Notifications\ActivateAccount;
+use SecureAccess\Notifications\VerifyAdditionalEmail;
 use SecureAccess\SecureAccess;
+use SecureAccess\Support\UserResolver;
 use SecureAccess\Tests\Fixtures\User;
 use SecureAccess\Tests\TestCase;
 
@@ -100,6 +102,9 @@ class RegistrationTest extends TestCase
 
         $url = $this->activationUrl();
         $this->assertStringNotContainsString($pending->token, $url);
+        $slug = basename(parse_url($url, PHP_URL_PATH));
+        $this->assertMatchesRegularExpression('/^[A-Za-z0-9]{64}$/', $slug);
+        $this->assertTrue($pending->tokenMatches($slug));
 
         $this->get($url)->assertOk()
             ->assertSee('name="profile_photo"', false)
@@ -348,6 +353,65 @@ class RegistrationTest extends TestCase
         $this->activate($url, ['username' => null])->assertRedirect(route('secure-access.setup'));
         $this->assertSame('new@example.com', User::sole()->email);
         $this->passwordStep('new@example.com', 'Secure-password123!')->assertRedirect(route('secure-access.challenge'));
+    }
+
+    public function test_registration_activation_and_email_login_without_a_users_email_column(): void
+    {
+        Schema::table('users', fn ($table) => $table->dropColumn('email'));
+
+        $this->registration(['email' => ' New@Example.com '])
+            ->assertSessionHasNoErrors()
+            ->assertRedirect(route('secure-access.register.sent'));
+        $this->assertSame(0, User::count());
+        $this->assertSame(0, UserEmail::count());
+        $url = $this->activationUrl();
+        $this->get($url)->assertOk();
+        $this->activate($url)->assertRedirect(route('secure-access.setup'));
+
+        $user = User::sole();
+        $email = UserEmail::sole();
+        $this->assertSame((string) $user->getKey(), (string) $email->user_id);
+        $this->assertSame('new@example.com', $email->email);
+        $this->assertTrue($email->isVerified());
+        $this->assertSame(0, PendingRegistration::count());
+        $this->assertGuest();
+        $this->assertFalse(SecureAccess::mfaVerified($user));
+        $this->passwordStep('NEW@example.com', 'Secure-password123!')->assertRedirect(route('secure-access.challenge'));
+        $this->registration(['email' => 'NEW@example.com'])->assertSessionHasErrors('email');
+        $this->activate($url)->assertSessionHasErrors('activation');
+        $this->assertSame(1, User::count());
+    }
+
+    public function test_verified_email_claimed_before_activation_is_rejected_without_a_users_email_column(): void
+    {
+        $user = $this->createUser();
+        Schema::table('users', fn ($table) => $table->dropColumn('email'));
+        $this->registration();
+        $url = $this->activationUrl();
+        UserEmail::create(['user_id' => $user->id, 'email' => 'new@example.com', 'verified_at' => now()]);
+
+        $this->activate($url)->assertRedirect(route('secure-access.register'))->assertSessionHasErrors('email');
+        $this->assertSame(1, User::count());
+        $this->assertSame(0, PendingRegistration::count());
+        $this->assertSame((string) $user->id, (string) UserEmail::sole()->user_id);
+    }
+
+    public function test_activation_replaces_only_unverified_email_claims_without_a_users_email_column(): void
+    {
+        $user = $this->createUser();
+        Schema::table('users', fn ($table) => $table->dropColumn('email'));
+        $email = UserEmail::create(['user_id' => $user->id, 'email' => 'new@example.com']);
+        $verificationUrl = (new VerifyAdditionalEmail($email))->verificationUrl();
+        $this->assertNull(app(UserResolver::class)->find('new@example.com'));
+        $this->assertFalse(app(UserResolver::class)->emailInUse('new@example.com'));
+
+        $this->registration()->assertSessionHasNoErrors();
+        $this->activate($this->activationUrl())->assertRedirect(route('secure-access.setup'));
+
+        $newUser = User::where('username', 'newuser')->sole();
+        $this->assertSame((string) $newUser->id, (string) UserEmail::sole()->user_id);
+        $this->assertTrue(UserEmail::sole()->isVerified());
+        $this->get($verificationUrl)->assertNotFound();
     }
 
     public function test_mfa_enrollment_after_activation_expires(): void
