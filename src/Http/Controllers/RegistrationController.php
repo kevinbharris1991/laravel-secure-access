@@ -26,7 +26,7 @@ use SecureAccess\Support\UserResolver;
 use Throwable;
 
 /**
- * Registration happens in two steps: the profile form (name, date of birth, email, gender and consent)
+ * Registration happens in two steps: the profile form (name parts, date of birth, email, gender and consent)
  * emails an activation link; the activation page collects the credentials and creates the account,
  * after which multi-factor enrollment is required before the user is authenticated.
  */
