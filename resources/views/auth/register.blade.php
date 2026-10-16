@@ -8,12 +8,6 @@
     <form method="POST" action="{{ route('secure-access.register.store') }}">
         @csrf
 
-        <div class="sa-mt-4">
-            <label class="sa-label" for="invitation_code">{{ __('Invitation code (Optional)') }}</label>
-            <input id="invitation_code" class="sa-input" type="text" name="invitation_code" value="{{ is_string(old('invitation_code')) ? old('invitation_code') : '' }}" autocomplete="off" maxlength="64">
-            @include('secure-access::partials.errors', ['messages' => $errors->get('invitation_code')])
-        </div>
-
         <div>
             <label class="sa-label" for="first_name">{{ __('First Name') }}</label>
             <input id="first_name" class="sa-input" type="text" name="first_name" value="{{ old('first_name') }}" required autofocus autocomplete="given-name">

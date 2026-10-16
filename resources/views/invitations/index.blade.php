@@ -1,6 +1,6 @@
 @extends('secure-access::layouts.guest')
 
-@section('title', __('Invite a member'))
+@section('title', __('Create a pending registration'))
 
 @section('content')
     @include('secure-access::partials.errors', ['messages' => $errors->all()])
@@ -22,7 +22,7 @@
             @include('secure-access::partials.errors', ['messages' => $errors->get('expires_in')])
         </div>
         <fieldset class="sa-mt-4">
-            <legend class="sa-label">{{ __('Groups for the new member') }}</legend>
+            <legend class="sa-label">{{ __('Groups to assign to the new member') }}</legend>
             @foreach ($groups as $group)
                 <label class="sa-text">
                     <input type="checkbox" name="groups[]" value="{{ $group->id }}" @checked(in_array($group->id, (array) old('groups', [])))>

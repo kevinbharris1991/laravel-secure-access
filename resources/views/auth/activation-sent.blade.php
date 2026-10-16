@@ -11,7 +11,7 @@
         @else
             {{ __('We sent you an activation link.') }}
         @endif
-        {{ __('Click the link to choose your username and password and activate your account. The link expires in :count minutes.', ['count' => $expires]) }}
+        {{ __('Click the link to choose your username and password and activate your account. The link expires in five minutes.') }}
     </p>
 
     <div class="sa-actions sa-between">

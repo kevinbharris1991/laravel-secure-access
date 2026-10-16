@@ -103,7 +103,7 @@ class RegistrationController extends Controller
         $resendAfter = max(0, (int) config('secure-access.registration.resend_after', 60));
 
         // Avoid flooding an inbox (or repeatedly invalidating its link) through repeated submissions.
-        if ($existing && $existing->name !== null
+        if ($existing && $existing->name !== null && $existing->expires_at?->isFuture()
             && $existing->updated_at?->greaterThan(now()->subSeconds($resendAfter))) {
             return redirect()->route('secure-access.register.sent')->with('registration_email', $existing->email);
         }
@@ -135,7 +135,6 @@ class RegistrationController extends Controller
     {
         return view('secure-access::auth.activation-sent', [
             'email' => $request->session()->get('registration_email'),
-            'expires' => ActivateAccount::expires(),
         ]);
     }
 
@@ -266,9 +265,13 @@ class RegistrationController extends Controller
 
                 $groups = [];
                 if ($pending->group_ids !== null) {
+                    if (! config('secure-access-acl.enabled')) {
+                        throw ValidationException::withMessages(['activation' => __('The registration groups have changed. Please contact the person who invited you.')]);
+                    }
+
                     $groups = AccessGroup::query()->whereIn('id', $pending->group_ids)->lockForUpdate()->pluck('id')->all();
                     if (count($groups) !== count($pending->group_ids) || $groups === []) {
-                        throw ValidationException::withMessages(['activation' => __('The registration groups have changed. Please contact the person who invited you.')]);
+                        throw ValidationException::withMessages(['activation' => __('The selected registration groups have changed. Please contact the person who created this registration.')]);
                     }
                 }
 

@@ -116,9 +116,6 @@ return [
             'prefer_not_to_say' => 'Prefer not to say',
         ],
 
-        // Minutes the emailed activation link stays valid.
-        'activation_expires' => 60,
-
         // Seconds before registering again with the same email address sends a new activation link.
         'resend_after' => 60,
 

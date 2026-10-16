@@ -10,7 +10,6 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rules\Password;
 use SecureAccess\Models\PendingRegistration;
 use SecureAccess\Models\AccessGroup;
-use SecureAccess\Models\RegistrationInvitation;
 use SecureAccess\Models\UserEmail;
 use SecureAccess\Notifications\ActivateAccount;
 use SecureAccess\SecureAccess;
@@ -83,6 +82,7 @@ class RegistrationTest extends TestCase
             ->assertSee('name="privacy"', false)
             ->assertSee('href="/terms"', false)
             ->assertSee('href="/privacy"', false)
+            ->assertDontSee('invitation_code')
             ->assertDontSee('name="username"', false)
             ->assertDontSee('name="password"', false)
             ->assertDontSee('name="name"', false)
@@ -123,130 +123,6 @@ class RegistrationTest extends TestCase
         $this->assertSame(['guest'], User::sole()->accessGroups()->pluck('key')->all());
     }
 
-    protected function invitation(array $attributes = []): array
-    {
-        $code = str_repeat('i', 64);
-        $group = AccessGroup::where('key', 'medical-nursing')->sole();
-        $invitation = RegistrationInvitation::create($attributes + [
-            'email' => 'new@example.com',
-            'token' => PendingRegistration::hashToken($code),
-            'group_ids' => [$group->id],
-            'expires_at' => now()->addDay(),
-        ]);
-
-        return [$invitation, $code, $group];
-    }
-
-    public function test_invitation_assigns_only_preconfigured_groups_after_activation(): void
-    {
-        $this->createUser();
-        $groups = AccessGroup::whereIn('key', ['medical-nursing', 'behavioral-support'])->orderBy('id')->get();
-        [$invitation, $code] = $this->invitation(['group_ids' => $groups->modelKeys()]);
-        $this->registration(['invitation_code' => $code])->assertSessionHasNoErrors();
-        $this->assertNull($invitation->fresh()->accepted_at);
-        $this->assertSame($invitation->id, PendingRegistration::sole()->invitation_id);
-
-        $url = $this->activationUrl();
-        $this->activate($url, ['groups' => [AccessGroup::where('key', 'executive-director')->value('id')]])
-            ->assertRedirect(route('secure-access.setup'));
-        $user = User::where('username', 'newuser')->sole();
-        $this->assertSame($groups->pluck('key')->all(), $user->accessGroups()->orderBy('secure_access_groups.id')->pluck('key')->all());
-        $this->assertNotNull($invitation->fresh()->accepted_at);
-        $this->assertGuest();
-        $this->activate($url)->assertSessionHasErrors('activation');
-        $user->delete();
-        $this->registration(['invitation_code' => $code])->assertSessionHasErrors('invitation_code');
-    }
-
-    public function test_invalid_expired_used_and_wrong_email_invitations_are_rejected(): void
-    {
-        [$invitation, $code] = $this->invitation();
-        $this->registration(['invitation_code' => 'invalid'])->assertSessionHasErrors('invitation_code');
-        $this->registration(['invitation_code' => str_repeat('x', 64)])->assertSessionHasErrors('invitation_code');
-        $this->registration(['invitation_code' => $code, 'email' => 'other@example.com'])->assertSessionHasErrors('invitation_code');
-        $invitation->update(['expires_at' => now()->subSecond()]);
-        $this->registration(['invitation_code' => $code])->assertSessionHasErrors('invitation_code');
-        $invitation->update(['expires_at' => now()->addDay(), 'accepted_at' => now()]);
-        $this->registration(['invitation_code' => $code])->assertSessionHasErrors('invitation_code');
-        $this->assertSame(0, PendingRegistration::count());
-    }
-
-    public function test_invitation_is_rechecked_at_activation_and_failure_rolls_back(): void
-    {
-        $this->createUser();
-        [$invitation, $code] = $this->invitation();
-        $this->registration(['invitation_code' => $code]);
-        $url = $this->activationUrl();
-        $invitation->update(['expires_at' => now()->subSecond()]);
-
-        $this->activate($url, ['profile_photo' => UploadedFile::fake()->image('me.png')])
-            ->assertSessionHasErrors('invitation_code');
-        $this->assertSame(1, User::count());
-        $this->assertSame(1, PendingRegistration::count());
-        $this->assertSame([], Storage::disk('public')->allFiles());
-        $this->assertNull($invitation->fresh()->accepted_at);
-    }
-
-    public function test_invitation_code_added_during_resend_window_updates_groups_without_resending_mail(): void
-    {
-        $this->createUser();
-        $this->registration();
-        $url = $this->activationUrl();
-        $updatedAt = PendingRegistration::sole()->updated_at;
-        [$invitation, $code, $group] = $this->invitation();
-        Notification::fake();
-
-        $this->registration(['invitation_code' => $code])->assertRedirect(route('secure-access.register.sent'));
-        Notification::assertNothingSent();
-        $this->assertSame($invitation->id, PendingRegistration::sole()->invitation_id);
-        $this->assertTrue($updatedAt->equalTo(PendingRegistration::sole()->updated_at));
-        $this->activate($url)->assertRedirect(route('secure-access.setup'));
-        $this->assertSame([$group->key], User::where('username', 'newuser')->sole()->accessGroups()->pluck('key')->all());
-    }
-
-    public function test_resubmitting_without_a_code_during_cooldown_preserves_invited_groups(): void
-    {
-        $this->createUser();
-        [$invitation, $code, $group] = $this->invitation();
-        $this->registration(['invitation_code' => $code]);
-        $url = $this->activationUrl();
-        Notification::fake();
-
-        $this->registration()->assertRedirect(route('secure-access.register.sent'));
-        Notification::assertNothingSent();
-        $this->assertSame($invitation->id, PendingRegistration::sole()->invitation_id);
-        $this->activate($url)->assertRedirect(route('secure-access.setup'));
-        $this->assertSame([$group->key], User::where('username', 'newuser')->sole()->accessGroups()->pluck('key')->all());
-    }
-
-    public function test_resending_an_activation_email_preserves_the_invitation_without_reentering_the_code(): void
-    {
-        $this->createUser();
-        [$invitation, $code, $group] = $this->invitation();
-        $this->registration(['invitation_code' => $code]);
-        $this->travel(61)->seconds();
-        Notification::fake();
-
-        $this->registration()->assertRedirect(route('secure-access.register.sent'));
-        $this->assertSame($invitation->id, PendingRegistration::sole()->invitation_id);
-        $this->activate($this->activationUrl())->assertRedirect(route('secure-access.setup'));
-        $this->assertSame([$group->key], User::where('username', 'newuser')->sole()->accessGroups()->pluck('key')->all());
-    }
-
-    public function test_deleted_invitation_or_group_cannot_silently_downgrade_an_invited_registration(): void
-    {
-        $this->createUser();
-        [$invitation, $code, $group] = $this->invitation();
-        $this->registration(['invitation_code' => $code]);
-        $url = $this->activationUrl();
-        $group->delete();
-        $this->activate($url)->assertSessionHasErrors('invitation_code');
-        $invitation->delete();
-        $this->activate($url)->assertSessionHasErrors('invitation_code');
-        $this->assertSame(1, User::count());
-        $this->assertSame(1, PendingRegistration::count());
-    }
-
     public function test_acl_can_be_disabled_without_blocking_regular_registration(): void
     {
         config(['secure-access-acl.enabled' => false]);
@@ -269,6 +145,7 @@ class RegistrationTest extends TestCase
         $this->assertSame('non_binary', $pending->gender);
         $this->assertNotNull($pending->terms_accepted_at);
         $this->assertNotNull($pending->privacy_policy_accepted_at);
+        $this->assertEquals(now()->addMinutes(5), $pending->expires_at);
 
         $url = $this->activationUrl();
         $this->assertStringNotContainsString($pending->token, $url);
@@ -436,7 +313,7 @@ class RegistrationTest extends TestCase
         Notification::fake();
         $this->registration(['email' => 'late@example.com']);
         $late = $this->activationUrl('late@example.com');
-        $this->travel(61)->minutes();
+        $this->travel(6)->minutes();
         $this->get($late)->assertRedirect(route('secure-access.register'))->assertSessionHasErrors('activation');
         $this->activate($late, ['username' => 'late'])->assertSessionHasErrors('activation');
         $this->assertSame(1, User::count());
