@@ -4,6 +4,7 @@ namespace SecureAccess\Tests\Feature;
 
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SecureAccess\Camp\Audit;
 use SecureAccess\Camp\Modules;
 use SecureAccess\Models\AccessGroup;
 use SecureAccess\Models\CampAssignment;
@@ -431,5 +432,17 @@ class CampModulesTest extends TestCase
         $this->assertSame('Wheelchair turning space', $record->data['mobility_requirements']);
         $this->assertSame('Quiet room', $record->data['sensory_requirements']);
         $this->assertArrayNotHasKey('medical_history', $record->data);
+    }
+
+    public function test_audit_helper_keeps_numeric_subjects_and_safely_omits_uuid_subjects(): void
+    {
+        $user = $this->loginRole('administrative-director');
+        $numeric = Audit::record('staff.update', 'staff', '123');
+        $uuid = Audit::record('staff.update', 'staff', '7b6951f4-9080-4f54-9837-0d72b3286265', ['medical_history' => 'Excluded payload']);
+        $this->assertSame('123', (string) $numeric->record_id);
+        $this->assertNull($uuid->record_id);
+        $this->assertSame($user->getMorphClass(), $uuid->actor_type);
+        $this->assertSame((string) $user->getKey(), $uuid->actor_id);
+        $this->assertStringNotContainsString('Excluded payload', $uuid->toJson());
     }
 }

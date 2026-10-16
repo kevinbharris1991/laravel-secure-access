@@ -18,7 +18,7 @@ class Audit
         $audit->actor_id = (string) $actor->getKey();
         $audit->action = $action;
         $audit->module = $module;
-        $audit->record_id = $recordId;
+        $audit->record_id = $recordId !== null && ctype_digit((string) $recordId) ? $recordId : null;
         $audit->save();
 
         return $audit;

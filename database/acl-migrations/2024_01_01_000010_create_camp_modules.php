@@ -35,7 +35,7 @@ return new class extends Migration
             $table->string('actor_id');
             $table->string('action', 40);
             $table->string('module', 80)->index();
-            $table->string('record_id')->nullable();
+            $table->unsignedBigInteger('record_id')->nullable();
             $table->timestamp('created_at');
         });
     }
