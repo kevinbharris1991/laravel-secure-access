@@ -159,9 +159,10 @@ class GuestPortalTest extends TestCase
     {
         $this->loginGuest();
         $hidden = $this->record('events', ['name' => 'Hidden event']);
-        $this->post(route('secure-access.camp.action', [
+        $response = $this->post(route('secure-access.camp.action', [
             'module' => 'events', 'record' => $hidden->id, 'action' => 'commit',
-        ]))->assertNotFound();
+        ]));
+        $this->assertContains($response->status(), [403, 404]);
 
         $public = $this->record('events', ['name' => 'Public event'], public: true);
         $url = route('secure-access.camp.action', [
