@@ -40,6 +40,8 @@ class SecureAccessServiceProvider extends ServiceProvider
         $this->app->make(Router::class)->aliasMiddleware('secure-access.mfa', EnsureMfaVerified::class);
         $this->app->make(Router::class)->aliasMiddleware('secure-access.permission', EnsureAccessPermission::class);
 
+        // Load ACL tables migration if ACL is enabled (or will be).
+        // This makes ACL available immediately after migration without requiring manual seeding.
         if (config('secure-access-acl.enabled')) {
             $this->loadMigrationsFrom(__DIR__.'/../database/acl-migrations');
         }

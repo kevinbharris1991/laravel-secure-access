@@ -2,6 +2,26 @@
 
 return [
 
+    /*
+    |--------------------------------------------------------------------------
+    | Default Group Definitions for Camp Organization
+    |--------------------------------------------------------------------------
+    |
+    | This configuration defines the default access groups and their permissions
+    | for a camp organization. These are used as defaults for database initialization
+    | via the ACL migration and CampPreset seeder.
+    |
+    | Once the database is populated, this config is NOT authoritative—the database
+    | is the source of truth. To modify groups/permissions, use the admin interface
+    | or database directly. This file remains as a reference/documentation of defaults.
+    |
+    | Permission scopes:
+    | - 'all': Full access to all resources
+    | - 'own': Access limited to resources owned by the user
+    | - 'assigned': Access limited to resources assigned to the user
+    |
+    */
+
     'groups' => [
         'executive-director' => [
             'name' => 'Executive Director',
@@ -11,15 +31,17 @@ return [
                 'revenue.manage_all', 'budgets.manage_all', 'financial_approvals.manage_all',
                 'grant_applications.create_all', 'grant_applications.read_all', 'grant_applications.update_all',
                 'grant_applications.approve_all', 'public_content.manage_all', 'board_documents.manage_all',
+                'groups.manage_all', 'permissions.manage_all', 'invitations.create_all',
             ],
         ],
-        'administrative-directors' => [
-            'name' => 'Administrative Directors',
+        'administrative-director' => [
+            'name' => 'Administrative Director',
             'permissions' => [
-                'users.manage_all', 'groups.manage_all', 'credentials.manage_all',
+                'users.manage_all', 'credentials.manage_all',
                 'rosters.manage_all', 'cabins.manage_all', 'policies.manage_all', 'onboarding.manage_all',
                 'registrations.manage_all', 'waivers.manage_all', 'consents.manage_all', 'households.manage_all',
                 'compliance.read_all', 'administrative_reports.export_all', 'form_templates.manage_all',
+                'invitations.create_all',
             ],
         ],
         'medical-nursing' => [
