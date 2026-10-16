@@ -6,6 +6,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Validation\ValidationException;
 use SecureAccess\Models\MfaMethod;
@@ -46,13 +47,17 @@ class SecurityController extends Controller
             'password' => ['required', 'current_password:'.config('secure-access.guard')],
         ]);
 
-        if (MfaMethod::query()->where('user_id', $user->getKey())->count() <= 1) {
+        $removed = DB::transaction(function () use ($user, $method) {
+            $count = MfaMethod::query()->where('user_id', $user->getKey())->lockForUpdate()->count();
+
+            return $count > 1 && $method->delete();
+        });
+
+        if (! $removed) {
             throw ValidationException::withMessages([
                 'password' => __('You must keep at least one multi-factor authentication method.'),
             ])->errorBag('removeMethod');
         }
-
-        $method->delete();
 
         return redirect()->route('secure-access.security')->with('status', __(':name removed.', ['name' => $method->name]));
     }
@@ -108,6 +113,13 @@ class SecurityController extends Controller
         abort_unless(hash_equals($email->verificationHash(), $hash), 403);
 
         if (! $email->isVerified()) {
+            if ($this->users->emailInUse($email->email)) {
+                $email->delete();
+
+                return redirect()->route('secure-access.security')
+                    ->withErrors(['email' => __('This email address is already in use.')], 'addEmail');
+            }
+
             $email->forceFill(['verified_at' => now()])->save();
         }
 

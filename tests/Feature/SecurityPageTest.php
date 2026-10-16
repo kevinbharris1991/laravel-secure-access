@@ -26,15 +26,29 @@ class SecurityPageTest extends TestCase
         return $user;
     }
 
-    public function test_acting_as_without_mfa_is_redirected_to_the_challenge(): void
+    public function test_sessions_authenticated_without_mfa_must_log_in_again(): void
     {
         $user = $this->createUser();
         $this->addTotp($user);
 
-        $this->actingAs($user)->get('/dashboard')->assertRedirect(route('secure-access.challenge'));
+        $this->actingAs($user)->get('/dashboard')->assertRedirect(route('secure-access.login'));
         $this->assertGuest();
 
-        $this->get(route('secure-access.challenge'))->assertRedirect(route('secure-access.challenge.show', $user->mfaMethods()->sole()));
+        // The password step cannot be skipped, neither for the challenge nor for enrollment.
+        $this->get(route('secure-access.challenge'))->assertRedirect(route('secure-access.login'));
+        $this->get(route('secure-access.setup'))->assertRedirect(route('secure-access.login'));
+    }
+
+    public function test_verification_link_is_rejected_when_the_address_was_taken_meanwhile(): void
+    {
+        $user = $this->login();
+        $email = UserEmail::create(['user_id' => $user->id, 'email' => 'work@example.com']);
+        $url = (new VerifyAdditionalEmail($email))->verificationUrl();
+
+        $this->createUser(['username' => 'other', 'email' => 'work@example.com']);
+
+        $this->get($url)->assertRedirect(route('secure-access.security'))->assertSessionHasErrorsIn('addEmail', 'email');
+        $this->assertModelMissing($email);
     }
 
     public function test_guests_are_redirected_to_login(): void

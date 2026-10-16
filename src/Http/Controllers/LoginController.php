@@ -49,12 +49,12 @@ class LoginController extends Controller
         }
 
         if ($this->lockout->isLocked($user)) {
-            return $this->failed(__('This account has been locked after too many failed login attempts. Please contact support.'));
+            return $this->failed(AccountLockout::lockedMessage());
         }
 
         if (! Hash::check($credentials['password'], $user->getAuthPassword())) {
             if ($this->lockout->recordFailure($user)) {
-                return $this->failed(__('This account has been locked after too many failed login attempts. Please contact support.'));
+                return $this->failed(AccountLockout::lockedMessage());
             }
 
             return $this->failed(__('These credentials do not match our records.'));

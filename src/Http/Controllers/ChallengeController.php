@@ -20,8 +20,6 @@ use SecureAccess\WebAuthn\WebAuthnException;
  */
 class ChallengeController extends Controller
 {
-    protected const LOCKED_MESSAGE = 'This account has been locked after too many failed login attempts. Please contact support.';
-
     public function __construct(
         protected PendingLogin $pending,
         protected AccountLockout $lockout,
@@ -219,6 +217,6 @@ class ChallengeController extends Controller
     {
         $this->pending->clear();
 
-        return redirect()->route('secure-access.login')->withErrors(['identifier' => __(self::LOCKED_MESSAGE)]);
+        return redirect()->route('secure-access.login')->withErrors(['identifier' => AccountLockout::lockedMessage()]);
     }
 }

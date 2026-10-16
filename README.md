@@ -63,7 +63,7 @@ The package registers these routes (all names are prefixed with `secure-access.`
 
 Protect your application's routes with the `secure-access.mfa` middleware. It redirects guests to the login
 page, and any user that was authenticated without completing MFA in the current session (for example via a
-"remember me" cookie or another login form) is logged out and sent through the MFA challenge:
+"remember me" cookie or another login form) is logged out and must log in again with password + MFA:
 
 ```php
 Route::middleware('secure-access.mfa')->group(function () {

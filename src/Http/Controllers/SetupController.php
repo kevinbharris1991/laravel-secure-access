@@ -4,6 +4,7 @@ namespace SecureAccess\Http\Controllers;
 
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -115,11 +116,15 @@ class SetupController extends Controller
             default => $this->storeWebAuthn($request, $user, $type),
         };
 
-        $method = MfaMethod::create($attributes + [
-            'user_id' => $user->getKey(),
-            'type' => $type,
-            'name' => $request->input('name') ?: MfaMethod::typeLabel($type),
-        ]);
+        try {
+            $method = MfaMethod::create($attributes + [
+                'user_id' => $user->getKey(),
+                'type' => $type,
+                'name' => $request->input('name') ?: MfaMethod::typeLabel($type),
+            ]);
+        } catch (UniqueConstraintViolationException) {
+            throw ValidationException::withMessages(['credential' => __('This device is already registered.')]);
+        }
 
         if ($enrolling) {
             // Registering a method proves possession of the new factor, completing this login.

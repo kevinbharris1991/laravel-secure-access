@@ -22,6 +22,7 @@ return new class extends Migration
 
     public function down(): void
     {
+        // The username column is intentionally kept: it may have existed before this migration ran.
         Schema::table('users', function (Blueprint $table) {
             $table->dropColumn(['failed_login_attempts', 'locked_at']);
         });

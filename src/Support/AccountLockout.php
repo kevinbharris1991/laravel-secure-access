@@ -11,6 +11,11 @@ use SecureAccess\Events\AccountLocked;
  */
 class AccountLockout
 {
+    public static function lockedMessage(): string
+    {
+        return __('This account has been locked after too many failed login attempts. Please contact support.');
+    }
+
     public function maxAttempts(): int
     {
         return max(1, (int) config('secure-access.lockout.max_attempts', 3));
