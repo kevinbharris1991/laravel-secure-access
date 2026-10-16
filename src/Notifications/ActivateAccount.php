@@ -18,14 +18,9 @@ class ActivateAccount extends Notification
         return ['mail'];
     }
 
-    public static function expires(): int
-    {
-        return max(1, (int) config('secure-access.registration.activation_expires', 60));
-    }
-
     public function activationUrl(): string
     {
-        return URL::temporarySignedRoute('secure-access.register.activate', now()->addMinutes(static::expires()), [
+        return URL::temporarySignedRoute('secure-access.register.activate', $this->registration->expires_at, [
             'registration' => $this->registration->getKey(),
             'token' => $this->token,
         ]);
@@ -35,10 +30,10 @@ class ActivateAccount extends Notification
     {
         return (new MailMessage)
             ->subject(__('Activate Your Account'))
-            ->greeting(__('Hello :name!', ['name' => $this->registration->name]))
+            ->greeting(__('Hello :name!', ['name' => $this->registration->name ?: $this->registration->email]))
             ->line(__('Thanks for registering. Please click the button below to activate your account. You will choose your username and password on the activation page.'))
             ->action(__('Activate Account'), $this->activationUrl())
-            ->line(__('This activation link will expire in :count minutes.', ['count' => static::expires()]))
+            ->line(__('This activation link expires :time.', ['time' => $this->registration->expires_at->diffForHumans()]))
             ->line(__('If you did not create an account, no further action is required.'));
     }
 }

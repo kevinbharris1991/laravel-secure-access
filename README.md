@@ -70,8 +70,8 @@ The package registers these routes (all names are prefixed with `secure-access.`
 | `GET /mfa/setup` | `secure-access.setup` | Register an MFA method (forced on first login) |
 | `GET /security` | `secure-access.security` | Manage MFA methods and additional email addresses |
 | `GET /access` | `secure-access.access.index` | Manage database groups, permissions and group grants |
-| `GET /invitations` | `secure-access.invitations.index` | Send registration invitations with preselected groups |
-| `POST /invitations` | `secure-access.invitations.store` | Email an expiring invitation code |
+| `GET /invitations` | `secure-access.invitations.index` | Create pending registrations with selected groups |
+| `POST /invitations` | `secure-access.invitations.store` | Email a direct activation link |
 
 Protect your application's routes with the `secure-access.mfa` middleware. It redirects guests to the login
 page, and any user that was authenticated without completing MFA in the current session (for example via a
@@ -102,8 +102,8 @@ login page, e.g. in `bootstrap/app.php`:
    stored. The email address is trimmed, lowercased and must not already be used by any account (including
    verified additional addresses). Gender options come from `registration.genders`.
 2. **Activation email.** The details are kept in `pending_registrations` (no user is created yet) and an
-   activation link is emailed. The link is signed, expires after `registration.activation_expires` minutes
-   (default `60`) and can be used once; registering again with the same address replaces the details and
+   activation link is emailed. The link is signed, expires five minutes after the pending registration is
+   created, and can be used once; registering again with the same address replaces the details and
    invalidates earlier links (at most once every `registration.resend_after` seconds, default `60`). Expired rows can be removed with
    `php artisan model:prune --model="SecureAccess\Models\PendingRegistration"`.
 3. **Activation page.** The link opens a page where the user may upload a profile photo (optional; JPG, PNG,
@@ -128,20 +128,16 @@ account-creation transaction, not when the profile form is submitted. A database
 record serializes activations and prevents reassigning executive access after all registered
 accounts are deleted. Existing accounts prevent first-user elevation.
 
-### Staff invitations
+### Director-created registrations
 
 After completing MFA, an `administrative-director` or `executive-director` can visit
 `/invitations`, enter the new member's email, select one or more database groups, and send
-an invitation. This requires the exact `invitations.create_all` permission; revoking its
-database grant immediately removes the ability to invite. Invitation senders may select
-any group, including administrative groups, so delegate this permission only to trusted staff.
-
-The recipient enters the emailed code in the optional **Invitation code** field at `/register`
-using the same email address. Normal age, consent, email activation and mandatory MFA requirements
-still apply. On successful activation, the selected groups replace the normal Guest assignment.
-Publicly submitted group IDs are ignored. Codes are random, stored only as hashes, expire after
-seven days and are consumed atomically with account creation. Expired, consumed or deleted
-invitations and deleted invitation groups prevent activation rather than silently assigning Guest.
+an activation link. This requires the exact `invitations.create_all` permission; revoking its
+database grant immediately removes the ability to create registrations. The director selects an
+expiration of 5 minutes, 15 minutes, 1 day, or 2 weeks. The recipient completes their profile,
+accepts the terms and privacy policy, and chooses sign-in credentials from the emailed link.
+On activation, the selected groups are assigned instead of the normal Guest assignment. Publicly
+submitted group IDs are ignored. No invitation code is needed.
 
 Routes use `routes.prefix` (empty by default), and registration submissions share the login per-IP
 throttle. The package does not add homepage navigation or unprefixed `login` / `register` route names.
