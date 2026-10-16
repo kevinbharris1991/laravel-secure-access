@@ -43,7 +43,7 @@ class LoginController extends Controller
 
         if (! $user) {
             // Spend comparable time to avoid revealing which identifiers exist.
-            Hash::check($credentials['password'], '$2y$12$'.str_repeat('a', 53));
+            Hash::make($credentials['password']);
 
             return $this->failed(__('These credentials do not match our records.'));
         }

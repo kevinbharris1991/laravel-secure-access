@@ -7,12 +7,13 @@ return [
     | User Model & Guard
     |--------------------------------------------------------------------------
     |
-    | The Eloquent model representing your users and the authentication guard
-    | used to log them in once every authentication factor has been verified.
+    | The Eloquent model representing your users (defaults to the model of the
+    | "users" auth provider) and the authentication guard used to log them in
+    | once every authentication factor has been verified.
     |
     */
 
-    'user_model' => env('SECURE_ACCESS_USER_MODEL', 'App\\Models\\User'),
+    'user_model' => env('SECURE_ACCESS_USER_MODEL'),
 
     'guard' => env('SECURE_ACCESS_GUARD', 'web'),
 
