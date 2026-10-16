@@ -23,6 +23,10 @@ class LockoutTest extends TestCase
         $this->assertNotNull($user->fresh()->locked_at);
         Event::assertDispatchedTimes(AccountLocked::class, 1);
 
+        // Further attempts are not counted once locked.
+        $this->passwordStep('taylor', 'wrong');
+        $this->assertSame(3, (int) $user->fresh()->failed_login_attempts);
+
         // Even the correct password is rejected now.
         $this->passwordStep('taylor', 'password')
             ->assertRedirect(route('secure-access.login'))

@@ -14,7 +14,7 @@ class TotpTest extends TestCase
         $this->passwordStep();
 
         $response = $this->get(route('secure-access.setup.create', 'totp'))->assertOk()->assertSee('<svg', false);
-        $secret = session('secure_access.setup.totp_secret');
+        $secret = session('secure_access.setup.totp')['secret'];
         $this->assertNotEmpty($secret);
         $response->assertSee($secret);
 

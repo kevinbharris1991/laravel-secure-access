@@ -45,10 +45,10 @@ class UserEmail extends Model
     }
 
     /**
-     * Hash embedded in the verification link.
+     * Hash embedded in the verification link, bound to this specific claim of the address.
      */
     public function verificationHash(): string
     {
-        return sha1($this->email);
+        return hash_hmac('sha256', $this->getKey().'|'.$this->user_id.'|'.$this->email, (string) config('app.key'));
     }
 }

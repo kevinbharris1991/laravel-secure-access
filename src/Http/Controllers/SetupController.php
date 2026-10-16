@@ -23,9 +23,7 @@ use SecureAccess\WebAuthn\WebAuthnException;
  */
 class SetupController extends Controller
 {
-    protected const TOTP_SESSION_KEY = 'secure_access.setup.totp_secret';
-
-    protected const SMS_KEY = 'setup';
+    protected const TOTP_SESSION_KEY = 'secure_access.setup.totp';
 
     public function __construct(
         protected PendingLogin $pending,
@@ -61,13 +59,16 @@ class SetupController extends Controller
         $data = ['type' => $type, 'enrolling' => $enrolling];
 
         if ($type === MfaMethod::TYPE_TOTP) {
-            $secret = session(self::TOTP_SESSION_KEY) ?: tap($this->totp->generateSecret(), fn ($s) => session()->put(self::TOTP_SESSION_KEY, $s));
+            $secret = $this->totpSecret($user) ?? tap($this->totp->generateSecret(), fn ($s) => session()->put(self::TOTP_SESSION_KEY, [
+                'user_id' => (string) $user->getKey(),
+                'secret' => $s,
+            ]));
             $uri = $this->totp->provisioningUri($secret, (string) ($user->getAttribute(config('secure-access.email_column', 'email')) ?: $user->getKey()));
             $data += ['secret' => $secret, 'qrCode' => $this->totp->qrCodeSvg($uri), 'uri' => $uri];
         }
 
         if ($type === MfaMethod::TYPE_SMS) {
-            $data['phone'] = $this->sms->hasPendingCode(self::SMS_KEY) ? $this->sms->phone(self::SMS_KEY) : null;
+            $data['phone'] = $this->sms->hasPendingCode($this->smsKey($user)) ? $this->sms->phone($this->smsKey($user)) : null;
         }
 
         if (in_array($type, [MfaMethod::TYPE_BIOMETRIC, MfaMethod::TYPE_SECURITY_KEY], true)) {
@@ -92,7 +93,7 @@ class SetupController extends Controller
             'phone.regex' => __('Enter the phone number in international format, e.g. +15555550123.'),
         ]);
 
-        $sent = $this->sms->send(self::SMS_KEY, $validated['phone']);
+        $sent = $this->sms->send($this->smsKey($user), $validated['phone']);
 
         return redirect()->route('secure-access.setup.create', MfaMethod::TYPE_SMS)->with('status', $sent
             ? __('A verification code has been sent to :phone.', ['phone' => $validated['phone']])
@@ -111,8 +112,8 @@ class SetupController extends Controller
         $request->validate(['name' => ['nullable', 'string', 'max:100']]);
 
         $attributes = match ($type) {
-            MfaMethod::TYPE_TOTP => $this->storeTotp($request),
-            MfaMethod::TYPE_SMS => $this->storeSms($request),
+            MfaMethod::TYPE_TOTP => $this->storeTotp($request, $user),
+            MfaMethod::TYPE_SMS => $this->storeSms($request, $user),
             default => $this->storeWebAuthn($request, $user, $type),
         };
 
@@ -139,11 +140,11 @@ class SetupController extends Controller
             ->with('status', __(':method added.', ['method' => MfaMethod::typeLabel($type)]));
     }
 
-    protected function storeTotp(Request $request): array
+    protected function storeTotp(Request $request, Model $user): array
     {
         $request->validate(['code' => ['required', 'string', 'max:16']]);
 
-        $secret = session(self::TOTP_SESSION_KEY);
+        $secret = $this->totpSecret($user);
         $step = $secret ? $this->totp->verify($secret, $request->input('code')) : null;
 
         if ($step === null) {
@@ -155,13 +156,13 @@ class SetupController extends Controller
         return ['secret' => $secret, 'counter' => $step];
     }
 
-    protected function storeSms(Request $request): array
+    protected function storeSms(Request $request, Model $user): array
     {
         $request->validate(['code' => ['required', 'string', 'max:16']]);
 
-        $phone = $this->sms->phone(self::SMS_KEY);
+        $phone = $this->sms->phone($this->smsKey($user));
 
-        if (! $phone || ! $this->sms->verify(self::SMS_KEY, $request->input('code'))) {
+        if (! $phone || ! $this->sms->verify($this->smsKey($user), $request->input('code'))) {
             throw ValidationException::withMessages(['code' => __('The provided code is invalid.')]);
         }
 
@@ -211,6 +212,23 @@ class SetupController extends Controller
         }
 
         return [null, false];
+    }
+
+    /**
+     * The TOTP secret being set up, only if it was generated for this user.
+     */
+    protected function totpSecret(Model $user): ?string
+    {
+        $state = session(self::TOTP_SESSION_KEY);
+
+        return is_array($state) && ($state['user_id'] ?? null) === (string) $user->getKey()
+            ? $state['secret']
+            : null;
+    }
+
+    protected function smsKey(Model $user): string
+    {
+        return 'setup.'.$user->getKey();
     }
 
     protected function methods(Model $user)

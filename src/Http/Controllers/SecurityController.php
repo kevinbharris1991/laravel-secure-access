@@ -76,8 +76,20 @@ class SecurityController extends Controller
             ])->errorBag('addEmail');
         }
 
-        // Unverified claims on the address (by any account) are superseded.
-        UserEmail::query()->where('email', mb_strtolower(trim($validated['email'])))->whereNull('verified_at')->delete();
+        // Our own unverified claim, or another account's claim whose verification link has expired, is superseded.
+        UserEmail::query()
+            ->where('email', mb_strtolower(trim($validated['email'])))
+            ->whereNull('verified_at')
+            ->where(fn ($query) => $query
+                ->where('user_id', $user->getKey())
+                ->orWhere('updated_at', '<', now()->subMinutes(VerifyAdditionalEmail::EXPIRES)))
+            ->delete();
+
+        if (UserEmail::query()->where('email', mb_strtolower(trim($validated['email'])))->exists()) {
+            throw ValidationException::withMessages([
+                'email' => __('This email address is already in use.'),
+            ])->errorBag('addEmail');
+        }
 
         $email = UserEmail::create(['user_id' => $user->getKey(), 'email' => $validated['email']]);
 
@@ -92,6 +104,7 @@ class SecurityController extends Controller
         $this->authorizeEmail($request, $email);
 
         if (! $email->isVerified()) {
+            $email->touch();
             $this->sendVerification($email);
         }
 

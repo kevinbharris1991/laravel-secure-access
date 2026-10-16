@@ -87,7 +87,7 @@ class SecurityPageTest extends TestCase
 
         $this->get(route('secure-access.setup'))->assertOk()->assertSee('Choose the type of method');
         $this->get(route('secure-access.setup.create', 'totp'))->assertOk();
-        $secret = session('secure_access.setup.totp_secret');
+        $secret = session('secure_access.setup.totp')['secret'];
 
         $this->post(route('secure-access.setup.store', 'totp'), ['name' => 'Backup app', 'code' => $this->currentTotp($secret)])
             ->assertRedirect(route('secure-access.security'));
@@ -172,6 +172,26 @@ class SecurityPageTest extends TestCase
             ->assertSessionHasErrorsIn('addEmail', 'email');
 
         Notification::assertNothingSent();
+    }
+
+    public function test_pending_claims_of_other_accounts_block_until_expired(): void
+    {
+        Notification::fake();
+        $other = $this->createUser(['username' => 'other', 'email' => 'other@example.com']);
+        $claim = UserEmail::create(['user_id' => $other->id, 'email' => 'work@example.com']);
+        $user = $this->login();
+
+        $this->post(route('secure-access.emails.store'), ['email' => 'work@example.com'])
+            ->assertSessionHasErrorsIn('addEmail', 'email');
+        $this->assertModelExists($claim);
+
+        // Once the other account's verification link has expired, the claim is superseded.
+        UserEmail::query()->whereKey($claim->id)->update(['updated_at' => now()->subMinutes(61)]);
+
+        $this->post(route('secure-access.emails.store'), ['email' => 'work@example.com'])
+            ->assertRedirect(route('secure-access.security'));
+        $this->assertModelMissing($claim);
+        $this->assertSame($user->id, UserEmail::sole()->user_id);
     }
 
     public function test_removing_an_email(): void

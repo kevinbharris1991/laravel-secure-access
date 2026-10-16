@@ -141,7 +141,9 @@ and origin default to the host / origin of `APP_URL`; override them with `SECURE
   (a touch).
 
 Supported algorithms: ES256, RS256 and EdDSA. Attestation is not requested (`none`), signature counters are
-checked to detect cloned authenticators.
+checked to detect cloned authenticators: authenticators that always report `0` are accepted, but once a credential
+has reported a non-zero counter any assertion that does not increase it is rejected (the user then has to sign in
+with another registered method and re-register the key).
 
 ## Configuration
 

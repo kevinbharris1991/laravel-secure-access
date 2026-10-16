@@ -9,6 +9,11 @@ use SecureAccess\Models\UserEmail;
 
 class VerifyAdditionalEmail extends Notification
 {
+    /**
+     * Minutes the verification link stays valid.
+     */
+    public const EXPIRES = 60;
+
     public function __construct(public UserEmail $email)
     {
     }
@@ -20,7 +25,7 @@ class VerifyAdditionalEmail extends Notification
 
     public function verificationUrl(): string
     {
-        return URL::temporarySignedRoute('secure-access.emails.verify', now()->addMinutes(60), [
+        return URL::temporarySignedRoute('secure-access.emails.verify', now()->addMinutes(self::EXPIRES), [
             'email' => $this->email->getKey(),
             'hash' => $this->email->verificationHash(),
         ]);

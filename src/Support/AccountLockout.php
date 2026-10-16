@@ -49,9 +49,8 @@ class AccountLockout
      */
     public function recordFailure(Model $user): bool
     {
-        $query = $user->newQuery()->whereKey($user->getKey())->toBase();
-
-        $query->increment('failed_login_attempts');
+        // Already locked accounts are not counted any further.
+        $user->newQuery()->whereKey($user->getKey())->whereNull('locked_at')->toBase()->increment('failed_login_attempts');
 
         $attempts = (int) $user->newQuery()->whereKey($user->getKey())->toBase()->value('failed_login_attempts');
 
