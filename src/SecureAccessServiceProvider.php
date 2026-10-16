@@ -17,6 +17,7 @@ class SecureAccessServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/secure-access.php', 'secure-access');
+        $this->mergeConfigFrom(__DIR__.'/../config/coppa.php', 'coppa');
 
         $this->app->bindIf(SmsSender::class, fn ($app) => $app->make(
             config('secure-access.mfa.sms.sender') ?: LogSmsSender::class
@@ -43,6 +44,7 @@ class SecureAccessServiceProvider extends ServiceProvider
 
             $this->publishes([
                 __DIR__.'/../config/secure-access.php' => config_path('secure-access.php'),
+                __DIR__.'/../config/coppa.php' => config_path('coppa.php'),
             ], 'secure-access-config');
 
             $this->publishes([

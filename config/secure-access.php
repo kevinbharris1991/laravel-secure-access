@@ -91,6 +91,42 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Registration
+    |--------------------------------------------------------------------------
+    |
+    | Registration starts with the user's name, date of birth, email address and
+    | gender plus acceptance of the terms of service and privacy policy. The
+    | minimum age is configured in config/coppa.php ("minimum_age"). An
+    | activation link is then emailed; on the activation page the user picks a
+    | username and password and may upload a profile photo.
+    |
+    */
+
+    'registration' => [
+        'terms_url' => env('SECURE_ACCESS_TERMS_URL', '/terms'),
+        'privacy_url' => env('SECURE_ACCESS_PRIVACY_URL', '/privacy'),
+
+        // Stored value => label shown on the registration form.
+        'genders' => [
+            'female' => 'Female',
+            'male' => 'Male',
+            'non_binary' => 'Non-binary',
+            'other' => 'Other',
+            'prefer_not_to_say' => 'Prefer not to say',
+        ],
+
+        // Minutes the emailed activation link stays valid.
+        'activation_expires' => 60,
+
+        'profile_photos' => [
+            'disk' => env('SECURE_ACCESS_PROFILE_PHOTO_DISK', 'public'),
+            'directory' => 'profile-photos',
+            'max_size' => 2048, // kilobytes
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Routes & Views
     |--------------------------------------------------------------------------
     */
