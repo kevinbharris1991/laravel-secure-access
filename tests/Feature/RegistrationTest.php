@@ -230,6 +230,13 @@ class RegistrationTest extends TestCase
         $first = $this->activationUrl();
         Notification::fake();
 
+        // Repeated submissions within the resend window neither send nor replace anything.
+        $this->registration(['name' => 'Too Soon'])->assertRedirect(route('secure-access.register.sent'));
+        Notification::assertNothingSent();
+        $this->assertSame('New User', PendingRegistration::sole()->name);
+        $this->get($first)->assertOk();
+
+        $this->travel(61)->seconds();
         $this->registration(['name' => 'Renamed User']);
         $second = $this->activationUrl();
 

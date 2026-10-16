@@ -99,7 +99,7 @@ login page, e.g. in `bootstrap/app.php`:
 2. **Activation email.** The details are kept in `pending_registrations` (no user is created yet) and an
    activation link is emailed. The link is signed, expires after `registration.activation_expires` minutes
    (default `60`) and can be used once; registering again with the same address replaces the details and
-   invalidates earlier links. Expired rows can be removed with
+   invalidates earlier links (at most once every `registration.resend_after` seconds, default `60`). Expired rows can be removed with
    `php artisan model:prune --model="SecureAccess\Models\PendingRegistration"`.
 3. **Activation page.** The link opens a page where the user may upload a profile photo (optional; JPG, PNG,
    GIF or WebP up to `registration.profile_photos.max_size` KB, stored on `registration.profile_photos.disk`

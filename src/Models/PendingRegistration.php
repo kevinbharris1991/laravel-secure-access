@@ -5,6 +5,7 @@ namespace SecureAccess\Models;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\MassPrunable;
 use Illuminate\Database\Eloquent\Model;
+use SecureAccess\Notifications\ActivateAccount;
 
 /**
  * A registration whose email address has not been confirmed through the activation link yet.
@@ -61,7 +62,7 @@ class PendingRegistration extends Model
     public function prunable(): Builder
     {
         return static::query()->where(
-            'updated_at', '<', now()->subMinutes((int) config('secure-access.registration.activation_expires', 60))
+            'updated_at', '<', now()->subMinutes(ActivateAccount::expires())
         );
     }
 }

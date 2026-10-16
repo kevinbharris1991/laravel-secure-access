@@ -118,6 +118,9 @@ return [
         // Minutes the emailed activation link stays valid.
         'activation_expires' => 60,
 
+        // Seconds before registering again with the same email address sends a new activation link.
+        'resend_after' => 60,
+
         'profile_photos' => [
             'disk' => env('SECURE_ACCESS_PROFILE_PHOTO_DISK', 'public'),
             'directory' => 'profile-photos',

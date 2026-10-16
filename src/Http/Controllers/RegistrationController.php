@@ -84,6 +84,14 @@ class RegistrationController extends Controller
             'privacy.accepted' => __('You must acknowledge that you have read and understand the Privacy Policy.'),
         ]);
 
+        $existing = PendingRegistration::query()->where('email', $validated['email'])->first();
+        $resendAfter = max(0, (int) config('secure-access.registration.resend_after', 60));
+
+        // Avoid flooding an inbox (or repeatedly invalidating its link) through repeated submissions.
+        if ($existing && $existing->updated_at?->greaterThan(now()->subSeconds($resendAfter))) {
+            return redirect()->route('secure-access.register.sent')->with('registration_email', $existing->email);
+        }
+
         $token = Str::random(64);
 
         // Registering again with the same address replaces the details and invalidates earlier links.
@@ -186,11 +194,11 @@ class RegistrationController extends Controller
         } catch (UniqueConstraintViolationException) {
             $this->deletePhoto($photo);
 
-            throw ValidationException::withMessages([
-                $usernameColumn ? 'username' : 'email' => $usernameColumn
-                    ? __('This username is already in use.')
-                    : __('This email address is already in use.'),
-            ]);
+            if (! $usernameColumn || $this->users->emailInUse($pending->email)) {
+                throw ValidationException::withMessages(['email' => __('This email address is already in use.')]);
+            }
+
+            throw ValidationException::withMessages(['username' => __('This username is already in use.')]);
         } catch (Throwable $e) {
             $this->deletePhoto($photo);
 
@@ -301,7 +309,7 @@ class RegistrationController extends Controller
 
     protected function photoDisk(): string
     {
-        return config('secure-access.registration.profile_photos.disk') ?: config('filesystems.default', 'local');
+        return config('secure-access.registration.profile_photos.disk') ?: 'public';
     }
 
     protected function deletePhoto(string|false|null $photo): void
