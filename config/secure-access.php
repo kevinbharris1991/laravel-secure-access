@@ -94,9 +94,10 @@ return [
     | Registration
     |--------------------------------------------------------------------------
     |
-    | Registration starts with the user's name, date of birth, email address and
-    | gender plus acceptance of the terms of service and privacy policy. The
-    | minimum age is configured in config/coppa.php ("minimum_age"). An
+    | Registration starts with the user's first name, optional middle initial,
+    | last name, date of birth, email address and gender plus acceptance of the
+    | terms of service and privacy policy. The minimum age is configured in
+    | config/coppa.php ("minimum_age"). An
     | activation link is then emailed; on the activation page the user picks a
     | username and password and may upload a profile photo.
     |

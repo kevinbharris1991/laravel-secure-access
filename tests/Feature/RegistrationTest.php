@@ -29,7 +29,8 @@ class RegistrationTest extends TestCase
     protected function registration(array $attributes = [])
     {
         return $this->post(route('secure-access.register.store'), $attributes + [
-            'name' => 'New User',
+            'first_name' => 'New',
+            'last_name' => 'User',
             'date_of_birth' => '2000-01-31',
             'email' => 'new@example.com',
             'gender' => 'non_binary',
@@ -68,7 +69,9 @@ class RegistrationTest extends TestCase
     {
         $this->get('/register')->assertOk()
             ->assertSee('Register')
-            ->assertSee('name="name"', false)
+            ->assertSee('name="first_name"', false)
+            ->assertSee('name="middle_initial"', false)
+            ->assertSee('name="last_name"', false)
             ->assertSee('name="date_of_birth"', false)
             ->assertSee('max="2013-06-15"', false)
             ->assertSee('name="email"', false)
@@ -80,19 +83,20 @@ class RegistrationTest extends TestCase
             ->assertSee('href="/privacy"', false)
             ->assertDontSee('name="username"', false)
             ->assertDontSee('name="password"', false)
+            ->assertDontSee('name="name"', false)
             ->assertSee(route('secure-access.register.store'));
     }
 
     public function test_full_registration_activation_and_mfa_flow(): void
     {
-        $this->registration(['email' => ' New@Example.com ', 'locked_at' => now()])
+        $this->registration(['email' => ' New@Example.com ', 'middle_initial' => 'Q', 'locked_at' => now()])
             ->assertRedirect(route('secure-access.register.sent'));
         $this->get(route('secure-access.register.sent'))->assertOk()->assertSee('new@example.com');
 
         $this->assertSame(0, User::count());
         $this->assertGuest();
         $pending = PendingRegistration::sole();
-        $this->assertSame('New User', $pending->name);
+        $this->assertSame('New Q User', $pending->name);
         $this->assertSame('2000-01-31', $pending->date_of_birth->toDateString());
         $this->assertSame('non_binary', $pending->gender);
         $this->assertNotNull($pending->terms_accepted_at);
@@ -114,7 +118,7 @@ class RegistrationTest extends TestCase
         ])->assertRedirect(route('secure-access.setup'));
 
         $user = User::sole();
-        $this->assertSame('New User', $user->name);
+        $this->assertSame('New Q User', $user->name);
         $this->assertSame('newuser', $user->username);
         $this->assertSame('new@example.com', $user->email);
         $this->assertSame('2000-01-31', substr($user->date_of_birth, 0, 10));
@@ -207,7 +211,10 @@ class RegistrationTest extends TestCase
     public function test_required_fields_and_formats_are_validated(): void
     {
         $this->post(route('secure-access.register.store'), [])
-            ->assertSessionHasErrors(['name', 'date_of_birth', 'email', 'gender', 'terms', 'privacy']);
+            ->assertSessionHasErrors(['first_name', 'last_name', 'date_of_birth', 'email', 'gender', 'terms', 'privacy']);
+        $this->registration(['middle_initial' => 'AB'])->assertSessionHasErrors('middle_initial');
+        $this->registration(['first_name' => str_repeat('A', 255), 'last_name' => str_repeat('B', 255)])
+            ->assertSessionHasErrors('last_name');
         $this->registration(['gender' => 'unknown', 'date_of_birth' => '31/01/2000', 'email' => ['new@example.com']])
             ->assertSessionHasErrors(['gender', 'date_of_birth', 'email']);
         $this->registration(['date_of_birth' => '1899-12-31'])->assertSessionHasErrors('date_of_birth');
@@ -231,13 +238,13 @@ class RegistrationTest extends TestCase
         Notification::fake();
 
         // Repeated submissions within the resend window neither send nor replace anything.
-        $this->registration(['name' => 'Too Soon'])->assertRedirect(route('secure-access.register.sent'));
+        $this->registration(['first_name' => 'Too'])->assertRedirect(route('secure-access.register.sent'));
         Notification::assertNothingSent();
         $this->assertSame('New User', PendingRegistration::sole()->name);
         $this->get($first)->assertOk();
 
         $this->travel(61)->seconds();
-        $this->registration(['name' => 'Renamed User']);
+        $this->registration(['first_name' => 'Renamed']);
         $second = $this->activationUrl();
 
         $this->assertSame('Renamed User', PendingRegistration::sole()->name);

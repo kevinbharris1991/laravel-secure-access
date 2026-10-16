@@ -91,8 +91,9 @@ login page, e.g. in `bootstrap/app.php`:
 
 ### Registration flow
 
-1. **Profile.** `/register` asks for the user's name, date of birth, email address and gender. The user must
-   agree to the Terms of Service and confirm they have read and understand the Privacy Policy
+1. **Profile.** `/register` asks for the user's first name, optional middle initial, last name, date of birth,
+   email address and gender. The name parts are stored together as the user's full name. The user must agree
+   to the Terms of Service and confirm they have read and understand the Privacy Policy
    (`registration.terms_url` / `registration.privacy_url`). Anyone younger than `minimum_age` in
    `config/coppa.php` (default `13`, env `COPPA_MINIMUM_AGE`) is rejected and nothing they entered is
    stored. The email address is trimmed, lowercased and must not already be used by any account (including
