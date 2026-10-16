@@ -139,11 +139,11 @@ class CampController extends Controller
     public function action(Request $request, string $module, int $record, string $action)
     {
         abort_unless(in_array($action, ['assign', 'acknowledge', 'approve', 'submit', 'cancel', 'commit', 'pay'], true), 404);
+        if ($action === 'commit') {
+            return app(GuestPortalController::class)->commit($request, $module, $record);
+        }
         $record = $this->record($module, $record);
         $this->authorizeAction($module, $action, $record);
-        if ($action === 'commit') {
-            return app(GuestPortalController::class)->commit($request, $module, $record->id);
-        }
         $assignee = null;
         if ($action === 'assign') {
             $model = SecureAccess::newUserQuery()->getModel();

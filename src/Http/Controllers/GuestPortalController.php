@@ -60,6 +60,7 @@ class GuestPortalController extends CampController
             $user->newQuery()->whereKey($user->getKey())->lockForUpdate()->firstOrFail();
             $opportunity = CampRecord::where('module', $module)->where('is_public', true)
                 ->lockForUpdate()->findOrFail($record);
+            $this->authorizeAction($module, 'read', $opportunity);
             $permission = Modules::permission($user, $module, 'commit', $opportunity);
             abort_unless($permission !== null, 403);
             Gate::forUser($user)->authorize('secure-access', [$permission, $opportunity]);

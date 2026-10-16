@@ -231,7 +231,7 @@ class CampModulesTest extends TestCase
         $this->get($this->url('index', 'activities'))->assertOk()->assertDontSee('Unpublished activity')
             ->assertViewHas('records', fn ($records) => $records->total() === 1 && $records->first()->id === $public->id);
         $this->get($this->url('show', 'activities', $private))->assertForbidden();
-        $this->post($this->url('action', 'activities', $private, ['action' => 'commit']))->assertForbidden();
+        $this->post($this->url('action', 'activities', $private, ['action' => 'commit']))->assertNotFound();
         $this->assertNull(Modules::permission($user, 'activities', 'delete', $public));
         $guest = AccessGroup::where('key', 'guest')->sole();
         $guest->permissions()->detach(Permission::where('key', 'bookings.update_own')->sole()->id);

@@ -129,6 +129,19 @@ class CampWorkflowsTest extends TestCase
         $this->get(route('secure-access.guest.index'))->assertOk()->assertSee('Accessible canoeing');
     }
 
+    public function test_enrollment_also_honors_a_database_narrowed_public_read_scope(): void
+    {
+        $guest = $this->role('guest');
+        $unrelated = $this->record('events', ['title' => 'Public but not owned']);
+        $unrelated->forceFill(['is_public' => true])->save();
+        Permission::where('key', 'events.read_public')->update(['scope' => 'own']);
+        $this->post(route('secure-access.guest.commit', ['module' => 'events', 'record' => $unrelated->id]))->assertForbidden();
+        $this->assertSame(0, CampRecord::where('module', 'activity_commitments')->count());
+        $owned = $this->record('events', ['title' => 'Owned public event'], $guest);
+        $owned->forceFill(['is_public' => true])->save();
+        $this->post(route('secure-access.guest.commit', ['module' => 'events', 'record' => $owned->id]))->assertRedirect();
+    }
+
     public function test_roster_assignments_unlock_only_the_assigned_camper(): void
     {
         $admin = $this->role('administrative-director', 'admin');
