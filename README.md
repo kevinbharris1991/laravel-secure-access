@@ -17,8 +17,8 @@ A Laravel package that hardens your login:
 
 ## Requirements
 
-- PHP 8.2+
-- Laravel 11 or 12
+- PHP 8.2+ (PHP 8.3+ for Laravel 13)
+- Laravel 11, 12 or 13
 - The `openssl` extension (and `sodium` for Ed25519 security keys)
 
 ## Installation
