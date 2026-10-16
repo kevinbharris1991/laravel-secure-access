@@ -5,6 +5,8 @@ namespace SecureAccess\Http\Controllers;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Gate;
+use SecureAccess\Camp\Modules;
 use SecureAccess\Dashboard\Dashboard;
 use SecureAccess\Dashboard\DashboardItem;
 use SecureAccess\Models\AccessGroup;
@@ -28,8 +30,13 @@ class DashboardController extends Controller
                 ->get();
         }
 
+        $staffPermission = collect(['users.read_all', 'users.manage_all', 'executive_users.manage_all'])
+            ->first(fn ($permission) => Gate::forUser($user)->allows('secure-access', [$permission]));
+
         return view('secure-access::dashboard.index', [
             'groups' => $groups,
+            'staffPermission' => $staffPermission,
+            'campItems' => config('secure-access-acl.enabled') ? Modules::visible($user) : [],
             'items' => $dashboard->resolveFor($user, [
                 'groups' => new DashboardItem('groups.manage_all', fn () => [
                     'title' => __('Manage groups'),

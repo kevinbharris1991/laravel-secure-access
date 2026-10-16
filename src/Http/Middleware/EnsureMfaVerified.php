@@ -4,6 +4,7 @@ namespace SecureAccess\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use SecureAccess\SecureAccess;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -26,6 +27,8 @@ class EnsureMfaVerified
         }
 
         if (SecureAccess::mfaVerified($user)) {
+            Auth::shouldUse(config('secure-access.guard') ?: config('auth.defaults.guard'));
+
             return $next($request);
         }
 
