@@ -3,6 +3,9 @@
 use Illuminate\Support\Facades\Route;
 use SecureAccess\Http\Controllers\ChallengeController;
 use SecureAccess\Http\Controllers\DashboardController;
+use SecureAccess\Http\Controllers\CampController;
+use SecureAccess\Http\Controllers\GuestPortalController;
+use SecureAccess\Http\Controllers\StaffController;
 use SecureAccess\Http\Controllers\LoginController;
 use SecureAccess\Http\Controllers\RegistrationController;
 use SecureAccess\Http\Controllers\SecurityController;
@@ -10,6 +13,7 @@ use SecureAccess\Http\Controllers\SetupController;
 use SecureAccess\Http\Controllers\InvitationController;
 use SecureAccess\Http\Controllers\AccessManagementController;
 use SecureAccess\Models\MfaMethod;
+use SecureAccess\Http\Middleware\AuditAccessChanges;
 
 Route::middleware(config('secure-access.routes.middleware', ['web']))
     ->prefix(config('secure-access.routes.prefix', ''))
@@ -45,10 +49,30 @@ Route::middleware(config('secure-access.routes.middleware', ['web']))
 
         Route::middleware('secure-access.mfa')->group(function () {
             Route::get('dashboard', DashboardController::class)->name('dashboard');
+            Route::get('dashboard/staff', [StaffController::class, 'index'])->name('staff.index');
+            Route::post('dashboard/staff', [StaffController::class, 'store'])->middleware('throttle:secure-access')->name('staff.store');
+            Route::put('dashboard/staff/{user}', [StaffController::class, 'update'])->middleware('throttle:secure-access')->name('staff.update');
+            Route::delete('dashboard/staff/{user}', [StaffController::class, 'destroy'])->middleware('throttle:secure-access')->name('staff.destroy');
+            Route::get('dashboard/guest', [GuestPortalController::class, 'index'])->name('guest.index');
+            Route::post('dashboard/guest/{module}/{record}/commit', [GuestPortalController::class, 'commit'])
+                ->whereIn('module', ['activities', 'events'])->whereNumber('record')
+                ->middleware('throttle:secure-access')->name('guest.commit');
+            Route::prefix('dashboard/modules/{module}')->name('camp.')->group(function () {
+                Route::get('/', [CampController::class, 'index'])->name('index');
+                Route::get('create', [CampController::class, 'create'])->name('create');
+                Route::get('export', [CampController::class, 'export'])->name('export');
+                Route::post('/', [CampController::class, 'store'])->middleware('throttle:secure-access')->name('store');
+                Route::get('{record}', [CampController::class, 'show'])->whereNumber('record')->name('show');
+                Route::get('{record}/edit', [CampController::class, 'edit'])->whereNumber('record')->name('edit');
+                Route::put('{record}', [CampController::class, 'update'])->whereNumber('record')->middleware('throttle:secure-access')->name('update');
+                Route::delete('{record}', [CampController::class, 'destroy'])->whereNumber('record')->middleware('throttle:secure-access')->name('destroy');
+                Route::post('{record}/actions/{action}', [CampController::class, 'action'])
+                    ->whereNumber('record')->middleware('throttle:secure-access')->name('action');
+            });
             Route::get('invitations', [InvitationController::class, 'index'])->name('invitations.index');
             Route::post('invitations', [InvitationController::class, 'store'])->middleware('throttle:secure-access')->name('invitations.store');
-            Route::get('access', [AccessManagementController::class, 'index'])->name('access.index');
-            Route::middleware('throttle:secure-access')->prefix('access')->name('access.')->group(function () {
+            Route::get('access', [AccessManagementController::class, 'index'])->middleware(AuditAccessChanges::class)->name('access.index');
+            Route::middleware(['throttle:secure-access', AuditAccessChanges::class])->prefix('access')->name('access.')->group(function () {
                 Route::post('groups', [AccessManagementController::class, 'storeGroup'])->name('groups.store');
                 Route::put('groups/{group}', [AccessManagementController::class, 'updateGroup'])->name('groups.update');
                 Route::delete('groups/{group}', [AccessManagementController::class, 'destroyGroup'])->name('groups.destroy');

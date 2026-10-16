@@ -50,6 +50,10 @@
     .sa-qr { display: inline-block; padding: .5rem; margin-top: 1rem; background: #fff; }
     .sa-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .875rem; word-break: break-all; }
     .sa-inline { display: inline; }
+    .sa-module-grid { display: grid; gap: 1rem; max-width: none; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); }
+    .sa-module-grid .sa-option { margin-top: 0; }
+    .sa-actions { flex-wrap: wrap; }
+    .sa-record-value { white-space: pre-wrap; overflow-wrap: anywhere; }
     @media (min-width: 640px) {
         .sa-guest { justify-content: center; padding-top: 0; }
         .sa-card { max-width: 28rem; border-radius: .5rem; }

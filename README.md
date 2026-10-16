@@ -463,11 +463,144 @@ The preset grants are additive: assigning multiple groups combines their access,
 so department boundaries depend on appropriate membership administration, not
 explicit deny rules.
 
-This is a permission vocabulary and visibility foundation, not camp business
-models, a compliance certification, billing/health workflows, or a complete UI.
-Personalized meal substitutions (including struck-out standard meals), activity
-enrollment, grants review, and data minimization belong to the host application,
-protected by these permissions and its resource policies.
+### Camp dashboard and workflows
+
+The MFA-protected `/dashboard` includes authorized module links, staff account
+management, and a guest meals/activities portal. Routes respect
+`secure-access.routes.prefix`. Each module has a list, record view, validated
+create/edit forms, and only its permitted workflow actions. Blade uses the existing
+`secure-access` Gate with `@can`; controllers independently enforce exact action
+permissions and ownership/assignment on direct requests.
+
+Run migrations after upgrading. New installations seed granular permissions along
+with the original compatibility vocabulary. Existing installations **do not receive
+new grants automatically**. Review `SecureAccess\Camp\Modules::grants()` and assign
+permissions through `/access`, or deliberately apply the module matrix:
+
+```bash
+php artisan migrate
+php artisan secure-access:seed-camp --grant-modules
+```
+
+The explicit option can restore previously revoked **module** grants. Ordinary
+`secure-access:seed-camp` remains non-restorative. Legacy `manage_all` permissions
+do not imply granular delete access to new modules.
+
+#### Module permission matrix
+
+`C/R/U/D` mean create/read/update/delete; omitted actions are denied. The executable
+field allowlists and full permission keys are in `src/Camp/Modules.php`. Keys follow
+`module.action_scope` (for example `health_profiles.update_all`,
+`care_plans.read_assigned`, `dietary_restrictions.read_only`,
+`bookings.update_own`). `only`, `public`, and `aggregate` permission suffixes use the
+ACL's `all` scope, with additional server-side projection/publication restrictions.
+
+| Group | Modules and actions |
+|---|---|
+| Executive Director | System/audit read; executive accounts; camper/incident aggregates only; revenue/budgets/financial approvals CRU and approve; grant applications CRU/approve; public content/board documents CRUD |
+| Administrative Director | Staff accounts CRUD/role assignment/credential resets; rosters/cabins/policies/onboarding and intake registrations/waivers/consents/households CRU; compliance audit, administrative report export, form templates CRUD |
+| Medical & Nursing | Medications/stock/dosages CRUD; health profiles/protocols/clinical incidents CRU; publish bounded safety, allergy, care, and behavioral-health context |
+| Behavioral Support | Support plans and consultations CRUD; behavior logs CRU; behavioral-health context R; counselor strategy publication |
+| Accessibility & Adaptive | Accommodations RU; adaptive equipment CRUD; facility audits CRU; accessibility work orders CR |
+| Program Directors | Activity schedules/events CRUD; adaptation logs CRU; participation RU; safety alerts R only |
+| Counselors & DSPs | Assigned care plans, communication/behavior strategies and allergy alerts R; assigned daily logs CR; assigned incident flags C only |
+| Facilities & Maintenance | Work orders R/update status/assign; inspections CRU; emergency alerts R/acknowledge; no camper records |
+| Housekeeping | Sanitation rosters/room requirements RU; own supply requests CR; no camper records |
+| Catering & Dietary | Dietary restrictions R only; menus/ingredients/allergen notices CRU; special meals RU; no clinical/behavioral notes |
+| Finance & Accounting | Billing/payments/refunds/reimbursements/payroll/grant funds CRUD; time cards R/approve; grant applications RU; financial report export; no PHI |
+| Guest | Own bookings CRU/cancel, balance payment request, accommodations/health/dietary disclosures CRU; published meal plans/activities/events R/commit; own special meals and activity commitments R |
+
+The existing ACL remains additive: staff administrators must not combine otherwise
+incompatible roles. Staff-account role assignment protects executive and
+permission-administrator privileges from escalation. Executive-account management
+is restricted to executive accounts.
+
+#### Data boundaries and audit
+
+Camp records use encrypted JSON with module-specific validated field allowlists,
+not an unrestricted shared notes payload. Keep `APP_KEY` backed up and use encrypted
+database backups and TLS in the host application. Ownership includes the user's
+morph type as well as identifier; client-supplied ownership cannot transfer a record.
+Counselor access requires a trusted camper assignment, never a supplied list of IDs.
+Use intake registration IDs as camper identifiers when linking records.
+
+Administrators assign counselors using a roster's **Assign** action with a counselor
+account ID and an intake registration ID. Nursing staff can publish care plans,
+allergy alerts, safety summaries, and bounded behavioral-health context linked to
+that camper; behavioral staff publish the separate counselor strategy records.
+Counselors cannot create assignments or alter those plans.
+
+Clinical source records, behavior context, safety-only alerts, dietary restrictions,
+and administrative intake are separate modules. Publish only the permitted context
+into the narrow modules; never copy full clinical histories into a safety alert,
+dietary restriction, work order, room setup, or financial description. Finance,
+Facilities, and Housekeeping have no route grants for camper modules. Executive
+reports return counts rather than raw camper data.
+
+Sensitive views, exports, and mutations produce metadata-only audit records in
+`secure_access_camp_audits` (actor, module, action, record ID, timestamp), without
+copying medical notes, credentials, or financial payloads. ACL-setting views and
+changes are audited as well. Audit records have no dashboard mutation route.
+Configure retention, database access, monitoring, and protected backups in the host
+application; this package is not a HIPAA/compliance certification.
+
+#### Guest self-service
+
+Guests manage their own reservations and disclosures using the same scoped modules.
+The meals/activities page shows published meal plans and available public events.
+A guest-specific incompatible meal replaces only the matching service date and
+breakfast/lunch/dinner period: the standard meal is struck through and the approved
+alternative is displayed. Other guests' special meals are never loaded.
+Activity commitments use server-derived ownership and repeat enrollment is
+idempotent. The guest page lists only that guest's commitments.
+
+Program staff publish guest-facing **Activities**/**Events** using the publication
+selector; drafts are denied even by direct URL. Catering publishes standard
+**Meal plans** separately from internal menus. Guest dietary disclosures project
+only names, food allergens, and dietary instructions into the catering dashboard
+(not environmental/drug allergies or clinical notes). Published meals generate
+guest-owned pending special-meal review rows for disclosed diets. Catering updates
+those rows with the alternative and incompatibility decision; guests cannot create
+or change substitutions. Finance creates guest-owned balance records using the
+guest account ID; guests can request payment of only those balances.
+
+Payment requests are workflow records, **not a payment gateway**. Integrate a trusted
+payment processor and verified callbacks before accepting money; a guest request
+must not be treated as proof that a balance is settled. Likewise payroll, clinical,
+and financial records are operational forms/logs, not external pharmacy, banking,
+or payroll-provider integrations.
+
+#### Local test accounts
+
+No default passwords or production accounts are installed. In a disposable
+`local`/`testing` host application after migration:
+
+```bash
+php artisan secure-access:demo-users
+```
+
+The command prompts for a password (minimum 12 characters), creates one account per
+group, and skips existing accounts without changing passwords or roles. Usernames
+are `camp-<group-key>` and emails are `camp-<group-key>@example.test`:
+
+| Group | Test username |
+|---|---|
+| Executive Director | `camp-executive-director` |
+| Administrative Director | `camp-administrative-director` |
+| Medical & Nursing | `camp-medical-nursing` |
+| Behavioral Support | `camp-behavioral-support` |
+| Accessibility & Adaptive | `camp-accessibility-adaptive` |
+| Program Directors | `camp-program-directors` |
+| Counselors & DSPs | `camp-counselors-dsps` |
+| Facilities & Maintenance | `camp-facilities-maintenance` |
+| Housekeeping | `camp-housekeeping` |
+| Catering & Dietary | `camp-catering-dietary` |
+| Finance & Accounting | `camp-finance-accounting` |
+| Guest | `camp-guest` |
+
+These accounts still require MFA enrollment.
+The demo command requires the configured username/email columns plus `name` and
+`password`; custom host user schemas may seed equivalent accounts themselves.
 
 ## Testing
 

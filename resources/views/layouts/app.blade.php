@@ -16,6 +16,7 @@
                     @include('secure-access::partials.logo')
                 </a>
 
+                <a class="sa-link" href="{{ route('secure-access.dashboard') }}">{{ __('Dashboard') }}</a>
                 <form method="POST" action="{{ route('secure-access.logout') }}">
                     @csrf
                     <button type="submit" class="sa-link">{{ __('Log Out') }}</button>

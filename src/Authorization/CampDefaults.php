@@ -12,7 +12,7 @@ class CampDefaults
      */
     public static function groups(): array
     {
-        return [
+        $groups = [
             'executive-director' => [
                 'name' => 'Executive Director',
                 'permissions' => [
@@ -116,5 +116,13 @@ class CampDefaults
                 ],
             ],
         ];
+
+        foreach (\SecureAccess\Camp\Modules::grants() as $role => $permissions) {
+            $groups[$role]['permissions'] = array_values(array_unique([
+                ...$groups[$role]['permissions'], ...$permissions,
+            ]));
+        }
+
+        return $groups;
     }
 }
