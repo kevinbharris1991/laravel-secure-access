@@ -29,6 +29,10 @@ class ActivateAccount extends Notification
     public function toMail(mixed $notifiable): MailMessage
     {
         return (new MailMessage)
+            ->view([
+                'html' => 'secure-access::mail.activate-account',
+                'text' => 'secure-access::mail.activate-account-text',
+            ])
             ->subject(__('Activate Your Account'))
             ->greeting(__('Hello :name!', ['name' => $this->registration->name ?: $this->registration->email]))
             ->line(__('Thanks for registering. Please click the button below to activate your account. You will choose your username and password on the activation page.'))
