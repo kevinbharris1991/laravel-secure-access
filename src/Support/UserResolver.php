@@ -20,7 +20,9 @@ class UserResolver
             return null;
         }
 
-        if ($user = $this->whereLower(config('secure-access.username_column', 'username'), $identifier)->first()) {
+        $username = $this->usernameColumn();
+
+        if ($username && ($user = $this->whereLower($username, $identifier)->first())) {
             return $user;
         }
 
@@ -50,6 +52,16 @@ class UserResolver
 
         return UserEmail::query()->where('email', $email)->whereNotNull('verified_at')->exists()
             || $this->whereLower(config('secure-access.email_column', 'email'), $email)->exists();
+    }
+
+    public function usernameColumn(): ?string
+    {
+        $column = config('secure-access.username_column', 'username');
+        $model = SecureAccess::newUserQuery()->getModel();
+
+        return $column && $model->getConnection()->getSchemaBuilder()->hasColumn($model->getTable(), $column)
+            ? $column
+            : null;
     }
 
     protected function whereLower(string $column, string $value): Builder
