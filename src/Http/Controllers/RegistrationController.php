@@ -117,6 +117,10 @@ class RegistrationController extends Controller
 
         // Avoid flooding an inbox (or repeatedly invalidating its link) through repeated submissions.
         if ($existing && $existing->updated_at?->greaterThan(now()->subSeconds($resendAfter))) {
+            // Keep the existing activation link, but honor a newly supplied invitation code.
+            DB::table($existing->getTable())->where('id', $existing->getKey())
+                ->update(['invitation_id' => $invitation?->getKey()]);
+
             return redirect()->route('secure-access.register.sent')->with('registration_email', $existing->email);
         }
 

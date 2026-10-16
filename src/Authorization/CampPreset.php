@@ -12,9 +12,9 @@ class CampPreset
     /**
      * Seed the database with default camp groups and permissions.
      *
-     * This is idempotent: it will not overwrite existing groups or permissions,
-     * and it will not restore permissions that have been removed from a group.
-     * The database is the authoritative source once seeded.
+     * This method ONLY seeds entirely empty databases (no groups and no permissions).
+     * On subsequent runs or in existing installations, it returns immediately without
+     * making changes. The database is the authoritative source once initialized.
      *
      * @throws LogicException
      */
@@ -25,11 +25,13 @@ class CampPreset
         }
 
         DB::transaction(function () {
-            foreach (config('secure-access-camp.groups', []) as $key => $definition) {
-                // Get or create the group (without overwriting)
-                $group = AccessGroup::firstOrCreate(['key' => $key], ['name' => $definition['name']]);
+            if (AccessGroup::exists() || Permission::exists()) {
+                return;
+            }
 
-                // For each permission in the definition, ensure it exists and grant if missing
+            foreach (CampDefaults::groups() as $key => $definition) {
+                $group = AccessGroup::create(['key' => $key, 'name' => $definition['name']]);
+
                 foreach ($definition['permissions'] as $permissionKey) {
                     $scope = match (true) {
                         str_ends_with($permissionKey, '_own') => 'own',
@@ -37,20 +39,9 @@ class CampPreset
                         default => 'all',
                     };
 
-                    // Create permission if it doesn't exist
                     $permission = Permission::firstOrCreate(['key' => $permissionKey], ['scope' => $scope]);
 
-                    // Validate that the scope hasn't changed (would indicate a configuration conflict)
-                    if ($permission->scope !== $scope) {
-                        throw new LogicException(
-                            "Conflicting scope for camp permission: {$permissionKey} ".
-                            "(existing: {$permission->scope}, requested: {$scope})"
-                        );
-                    }
-
-                    // Grant permission to group if not already granted (idempotent)
-                    // Use syncWithoutDetaching to avoid removing manually-added permissions
-                    $group->permissions()->syncWithoutDetaching([$permission->id]);
+                    $group->permissions()->attach($permission->id);
                 }
             }
         });

@@ -9,7 +9,7 @@ class SeedCampAccessCommand extends Command
 {
     protected $signature = 'secure-access:seed-camp';
 
-    protected $description = 'Seed or refresh camp access groups and permissions from configuration. Database is authoritative; existing grants are not restored.';
+    protected $description = 'Initialize an empty ACL database with camp groups and permissions.';
 
     public function handle(CampPreset $preset): int
     {

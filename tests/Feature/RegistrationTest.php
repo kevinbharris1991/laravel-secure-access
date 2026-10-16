@@ -187,6 +187,23 @@ class RegistrationTest extends TestCase
         $this->assertNull($invitation->fresh()->accepted_at);
     }
 
+    public function test_invitation_code_added_during_resend_window_updates_groups_without_resending_mail(): void
+    {
+        $this->createUser();
+        $this->registration();
+        $url = $this->activationUrl();
+        $updatedAt = PendingRegistration::sole()->updated_at;
+        [$invitation, $code, $group] = $this->invitation();
+        Notification::fake();
+
+        $this->registration(['invitation_code' => $code])->assertRedirect(route('secure-access.register.sent'));
+        Notification::assertNothingSent();
+        $this->assertSame($invitation->id, PendingRegistration::sole()->invitation_id);
+        $this->assertTrue($updatedAt->equalTo(PendingRegistration::sole()->updated_at));
+        $this->activate($url)->assertRedirect(route('secure-access.setup'));
+        $this->assertSame([$group->key], User::where('username', 'newuser')->sole()->accessGroups()->pluck('key')->all());
+    }
+
     public function test_deleted_invitation_or_group_cannot_silently_downgrade_an_invited_registration(): void
     {
         $this->createUser();
