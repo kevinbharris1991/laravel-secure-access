@@ -204,6 +204,35 @@ class RegistrationTest extends TestCase
         $this->assertSame([$group->key], User::where('username', 'newuser')->sole()->accessGroups()->pluck('key')->all());
     }
 
+    public function test_resubmitting_without_a_code_during_cooldown_preserves_invited_groups(): void
+    {
+        $this->createUser();
+        [$invitation, $code, $group] = $this->invitation();
+        $this->registration(['invitation_code' => $code]);
+        $url = $this->activationUrl();
+        Notification::fake();
+
+        $this->registration()->assertRedirect(route('secure-access.register.sent'));
+        Notification::assertNothingSent();
+        $this->assertSame($invitation->id, PendingRegistration::sole()->invitation_id);
+        $this->activate($url)->assertRedirect(route('secure-access.setup'));
+        $this->assertSame([$group->key], User::where('username', 'newuser')->sole()->accessGroups()->pluck('key')->all());
+    }
+
+    public function test_resending_an_activation_email_preserves_the_invitation_without_reentering_the_code(): void
+    {
+        $this->createUser();
+        [$invitation, $code, $group] = $this->invitation();
+        $this->registration(['invitation_code' => $code]);
+        $this->travel(61)->seconds();
+        Notification::fake();
+
+        $this->registration()->assertRedirect(route('secure-access.register.sent'));
+        $this->assertSame($invitation->id, PendingRegistration::sole()->invitation_id);
+        $this->activate($this->activationUrl())->assertRedirect(route('secure-access.setup'));
+        $this->assertSame([$group->key], User::where('username', 'newuser')->sole()->accessGroups()->pluck('key')->all());
+    }
+
     public function test_deleted_invitation_or_group_cannot_silently_downgrade_an_invited_registration(): void
     {
         $this->createUser();

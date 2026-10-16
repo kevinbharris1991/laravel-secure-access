@@ -8,17 +8,17 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('secure_access_permissions', function (Blueprint $table) {
-            $table->id();
-            $table->string('key')->unique();
-            $table->string('scope')->default('all');
-            $table->timestamps();
-        });
-
         Schema::create('secure_access_groups', function (Blueprint $table) {
             $table->id();
             $table->string('key')->unique();
             $table->string('name');
+            $table->timestamps();
+        });
+
+        Schema::create('secure_access_permissions', function (Blueprint $table) {
+            $table->id();
+            $table->string('key')->unique();
+            $table->string('scope')->default('all');
             $table->timestamps();
         });
 
@@ -41,7 +41,7 @@ return new class extends Migration
     {
         Schema::dropIfExists('secure_access_memberships');
         Schema::dropIfExists('secure_access_group_grants');
-        Schema::dropIfExists('secure_access_groups');
         Schema::dropIfExists('secure_access_permissions');
+        Schema::dropIfExists('secure_access_groups');
     }
 };
