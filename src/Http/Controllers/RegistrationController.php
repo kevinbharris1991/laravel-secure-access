@@ -64,7 +64,20 @@ class RegistrationController extends Controller
         }
 
         $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
+            'first_name' => ['required', 'string', 'max:255'],
+            'middle_initial' => ['nullable', 'string', 'max:1'],
+            'last_name' => ['required', 'string', 'max:255', function ($attribute, $value, $fail) use ($request) {
+                $nameParts = [
+                    $request->input('first_name'),
+                    $request->input('middle_initial'),
+                    $value,
+                ];
+                $name = implode(' ', array_filter($nameParts, fn ($part) => is_string($part) && $part !== ''));
+
+                if (mb_strlen($name) > 255) {
+                    $fail(__('The full name may not be greater than 255 characters.'));
+                }
+            }],
             'date_of_birth' => ['bail', 'required', 'date_format:Y-m-d', 'after_or_equal:1900-01-01', function ($attribute, $value, $fail) {
                 if (Carbon::createFromFormat('!Y-m-d', $value)->greaterThan($this->latestBirthDate())) {
                     $fail(__('You must be at least :age years old to register.', ['age' => $this->minimumAge()]));
@@ -97,7 +110,11 @@ class RegistrationController extends Controller
 
         // Registering again with the same address replaces the details and invalidates earlier links.
         $registration = PendingRegistration::query()->updateOrCreate(['email' => $validated['email']], [
-            'name' => $validated['name'],
+            'name' => implode(' ', array_filter([
+                $validated['first_name'],
+                $validated['middle_initial'] ?? null,
+                $validated['last_name'],
+            ], fn ($part) => $part !== null && $part !== '')),
             'date_of_birth' => $validated['date_of_birth'],
             'gender' => $validated['gender'],
             'token' => PendingRegistration::hashToken($token),

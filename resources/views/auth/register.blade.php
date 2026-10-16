@@ -9,9 +9,21 @@
         @csrf
 
         <div>
-            <label class="sa-label" for="name">{{ __('Name') }}</label>
-            <input id="name" class="sa-input" type="text" name="name" value="{{ old('name') }}" required autofocus autocomplete="name">
-            @include('secure-access::partials.errors', ['messages' => $errors->get('name')])
+            <label class="sa-label" for="first_name">{{ __('First Name') }}</label>
+            <input id="first_name" class="sa-input" type="text" name="first_name" value="{{ old('first_name') }}" required autofocus autocomplete="given-name">
+            @include('secure-access::partials.errors', ['messages' => $errors->get('first_name')])
+        </div>
+
+        <div class="sa-mt-4">
+            <label class="sa-label" for="middle_initial">{{ __('Middle Initial (Optional)') }}</label>
+            <input id="middle_initial" class="sa-input" type="text" name="middle_initial" value="{{ old('middle_initial') }}" maxlength="1" autocomplete="additional-name">
+            @include('secure-access::partials.errors', ['messages' => $errors->get('middle_initial')])
+        </div>
+
+        <div class="sa-mt-4">
+            <label class="sa-label" for="last_name">{{ __('Last Name') }}</label>
+            <input id="last_name" class="sa-input" type="text" name="last_name" value="{{ old('last_name') }}" required autocomplete="family-name">
+            @include('secure-access::partials.errors', ['messages' => $errors->get('last_name')])
         </div>
 
         <div class="sa-mt-4">
