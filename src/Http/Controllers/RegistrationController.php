@@ -19,7 +19,6 @@ use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\ValidationException;
 use SecureAccess\Models\PendingRegistration;
 use SecureAccess\Models\AccessGroup;
-use SecureAccess\Models\RegistrationInvitation;
 use SecureAccess\Models\UserEmail;
 use SecureAccess\Notifications\ActivateAccount;
 use SecureAccess\SecureAccess;
@@ -93,7 +92,6 @@ class RegistrationController extends Controller
             'gender' => ['required', 'string', Rule::in(array_map('strval', array_keys($this->genders())))],
             'terms' => ['accepted'],
             'privacy' => ['accepted'],
-            'invitation_code' => ['nullable', 'string', 'size:64'],
         ], [
             'date_of_birth.date_format' => __('Please enter a valid date of birth.'),
             'date_of_birth.after_or_equal' => __('Please enter a valid date of birth.'),
@@ -101,28 +99,12 @@ class RegistrationController extends Controller
             'privacy.accepted' => __('You must acknowledge that you have read and understand the Privacy Policy.'),
         ]);
 
-        $invitation = null;
-        if (! empty($validated['invitation_code'])) {
-            $invitation = config('secure-access-acl.enabled')
-                ? RegistrationInvitation::query()->where('token', PendingRegistration::hashToken($validated['invitation_code']))->first()
-                : null;
-
-            if (! $invitation || ! $invitation->usableFor($validated['email'])) {
-                throw ValidationException::withMessages(['invitation_code' => __('This invitation is invalid or has expired.')]);
-            }
-        }
-
         $existing = PendingRegistration::query()->where('email', $validated['email'])->first();
         $resendAfter = max(0, (int) config('secure-access.registration.resend_after', 60));
 
         // Avoid flooding an inbox (or repeatedly invalidating its link) through repeated submissions.
-        if ($existing && $existing->updated_at?->greaterThan(now()->subSeconds($resendAfter))) {
-            // Keep the existing activation link, but honor a newly supplied invitation code.
-            if ($invitation) {
-                DB::table($existing->getTable())->where('id', $existing->getKey())
-                    ->update(['invitation_id' => $invitation->getKey()]);
-            }
-
+        if ($existing && $existing->name !== null
+            && $existing->updated_at?->greaterThan(now()->subSeconds($resendAfter))) {
             return redirect()->route('secure-access.register.sent')->with('registration_email', $existing->email);
         }
 
@@ -140,7 +122,8 @@ class RegistrationController extends Controller
             'token' => PendingRegistration::hashToken($token),
             'terms_accepted_at' => now(),
             'privacy_policy_accepted_at' => now(),
-            'invitation_id' => $invitation?->getKey() ?? $existing?->invitation_id,
+            'expires_at' => now()->addMinutes(5),
+            'group_ids' => $existing?->group_ids,
         ]);
 
         Notification::route('mail', $registration->email)->notify(new ActivateAccount($registration, $token));
@@ -171,6 +154,12 @@ class RegistrationController extends Controller
             'action' => $request->fullUrl(),
             'username' => $this->users->usernameColumn() !== null,
             'maxPhotoSize' => $this->maxPhotoSize(),
+            'completeProfile' => $pending->name === null,
+            'genders' => $this->genders(),
+            'minimumAge' => $this->minimumAge(),
+            'latestBirthDate' => $this->latestBirthDate()->toDateString(),
+            'termsUrl' => config('secure-access.registration.terms_url'),
+            'privacyUrl' => config('secure-access.registration.privacy_url'),
         ]);
     }
 
@@ -207,6 +196,29 @@ class RegistrationController extends Controller
             }];
         }
 
+        if ($pending->name === null) {
+            $rules += [
+                'first_name' => ['required', 'string', 'max:255'],
+                'middle_initial' => ['nullable', 'string', 'max:1'],
+                'last_name' => ['required', 'string', 'max:255', function ($attribute, $value, $fail) use ($request) {
+                    $nameParts = [$request->input('first_name'), $request->input('middle_initial'), $value];
+                    $name = implode(' ', array_filter($nameParts, fn ($part) => is_string($part) && $part !== ''));
+
+                    if (mb_strlen($name) > 255) {
+                        $fail(__('The full name may not be greater than 255 characters.'));
+                    }
+                }],
+                'date_of_birth' => ['bail', 'required', 'date_format:Y-m-d', 'after_or_equal:1900-01-01', function ($attribute, $value, $fail) {
+                    if (Carbon::createFromFormat('!Y-m-d', $value)->greaterThan($this->latestBirthDate())) {
+                        $fail(__('You must be at least :age years old to register.', ['age' => $this->minimumAge()]));
+                    }
+                }],
+                'gender' => ['required', 'string', Rule::in(array_map('strval', array_keys($this->genders())))],
+                'terms' => ['accepted'],
+                'privacy' => ['accepted'],
+            ];
+        }
+
         $validated = $request->validate($rules);
 
         if ($this->users->emailInUse($pending->email)) {
@@ -229,8 +241,22 @@ class RegistrationController extends Controller
                 $first = ! $state->claimed && ! (new $model)->newQueryWithoutScopes()->exists();
 
                 $pending = PendingRegistration::query()->whereKey($pending->getKey())->lockForUpdate()->first();
-                if (! $pending || ! $pending->tokenMatches($token)) {
+                if (! $pending || ! $pending->expires_at->isFuture() || ! $pending->tokenMatches($token)) {
                     return null;
+                }
+
+                if ($pending->name === null) {
+                    $pending->forceFill([
+                        'name' => implode(' ', array_filter([
+                            $validated['first_name'],
+                            $validated['middle_initial'] ?? null,
+                            $validated['last_name'],
+                        ], fn ($part) => $part !== null && $part !== '')),
+                        'date_of_birth' => $validated['date_of_birth'],
+                        'gender' => $validated['gender'],
+                        'terms_accepted_at' => now(),
+                        'privacy_policy_accepted_at' => now(),
+                    ]);
                 }
 
                 // Consuming the registration atomically makes the activation link single-use.
@@ -239,17 +265,11 @@ class RegistrationController extends Controller
                 }
 
                 $groups = [];
-                if ($pending->invitation_id !== null) {
-                    $invitation = RegistrationInvitation::query()->whereKey($pending->invitation_id)->lockForUpdate()->first();
-                    if (! config('secure-access-acl.enabled') || ! $invitation || ! $invitation->usableFor($pending->email)) {
-                        throw ValidationException::withMessages(['invitation_code' => __('This invitation is invalid or has expired. Please register again.')]);
+                if ($pending->group_ids !== null) {
+                    $groups = AccessGroup::query()->whereIn('id', $pending->group_ids)->lockForUpdate()->pluck('id')->all();
+                    if (count($groups) !== count($pending->group_ids) || $groups === []) {
+                        throw ValidationException::withMessages(['activation' => __('The registration groups have changed. Please contact the person who invited you.')]);
                     }
-
-                    $groups = AccessGroup::query()->whereIn('id', $invitation->group_ids)->lockForUpdate()->pluck('id')->all();
-                    if (count($groups) !== count($invitation->group_ids) || $groups === []) {
-                        throw ValidationException::withMessages(['invitation_code' => __('The invitation groups have changed. Please request a new invitation.')]);
-                    }
-                    $invitation->forceFill(['accepted_at' => now()])->save();
                 }
 
                 $user = $this->createUser($pending, $validated, $usernameColumn, $photo ?: null);
@@ -320,7 +340,7 @@ class RegistrationController extends Controller
         // Optional profile columns are only written when they exist on the user table.
         $optional = [
             'name' => $pending->name,
-            'date_of_birth' => $pending->date_of_birth->toDateString(),
+            'date_of_birth' => $pending->date_of_birth?->toDateString(),
             'gender' => $pending->gender,
             'profile_photo_path' => $photo,
             'terms_accepted_at' => $pending->terms_accepted_at,
@@ -358,7 +378,9 @@ class RegistrationController extends Controller
 
         $registration = PendingRegistration::query()->find($id);
 
-        return $registration && $registration->tokenMatches($token) ? $registration : null;
+        return $registration && $registration->expires_at?->isFuture() && $registration->tokenMatches($token)
+            ? $registration
+            : null;
     }
 
     protected function invalidLink(): RedirectResponse

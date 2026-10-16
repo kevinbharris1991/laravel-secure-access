@@ -5,19 +5,19 @@ namespace SecureAccess\Models;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\MassPrunable;
 use Illuminate\Database\Eloquent\Model;
-use SecureAccess\Notifications\ActivateAccount;
 
 /**
  * A registration whose email address has not been confirmed through the activation link yet.
  *
  * @property int $id
- * @property string $name
+ * @property string|null $name
  * @property string $email
- * @property \Illuminate\Support\Carbon $date_of_birth
- * @property string $gender
+ * @property \Illuminate\Support\Carbon|null $date_of_birth
+ * @property string|null $gender
  * @property string $token SHA-256 hash of the activation token.
- * @property \Illuminate\Support\Carbon $terms_accepted_at
- * @property \Illuminate\Support\Carbon $privacy_policy_accepted_at
+ * @property \Illuminate\Support\Carbon|null $terms_accepted_at
+ * @property \Illuminate\Support\Carbon|null $privacy_policy_accepted_at
+ * @property \Illuminate\Support\Carbon $expires_at
  */
 class PendingRegistration extends Model
 {
@@ -33,7 +33,8 @@ class PendingRegistration extends Model
         'token',
         'terms_accepted_at',
         'privacy_policy_accepted_at',
-        'invitation_id',
+        'expires_at',
+        'group_ids',
     ];
 
     protected $hidden = ['token'];
@@ -44,6 +45,8 @@ class PendingRegistration extends Model
             'date_of_birth' => 'date',
             'terms_accepted_at' => 'datetime',
             'privacy_policy_accepted_at' => 'datetime',
+            'expires_at' => 'datetime',
+            'group_ids' => 'array',
         ];
     }
 
@@ -62,8 +65,6 @@ class PendingRegistration extends Model
      */
     public function prunable(): Builder
     {
-        return static::query()->where(
-            'updated_at', '<', now()->subMinutes(ActivateAccount::expires())
-        );
+        return static::query()->where('expires_at', '<', now());
     }
 }
