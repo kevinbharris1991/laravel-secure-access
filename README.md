@@ -28,8 +28,10 @@ composer require kevinbharris1991/laravel-secure-access
 php artisan migrate
 ```
 
-The migrations add `username`, `failed_login_attempts` and `locked_at` columns to `users` (the `username`
-column is skipped if it already exists) and create the `user_emails` and `mfa_methods` tables.
+The migrations add `username`, `failed_login_attempts`, `locked_at`, `date_of_birth`, `gender`,
+`profile_photo_path`, `terms_accepted_at` and `privacy_policy_accepted_at` columns to `users` (the `username`
+and registration profile columns are skipped if they already exist) and create the `user_emails`,
+`mfa_methods` and `pending_registrations` tables.
 
 Optionally add the trait to your `User` model for convenient relationships:
 
@@ -42,7 +44,8 @@ class User extends Authenticatable
 }
 ```
 
-Publish the configuration and/or views if you want to customise them:
+Publish the configuration (`config/secure-access.php` and `config/coppa.php`) and/or views if you want to
+customise them:
 
 ```bash
 php artisan vendor:publish --tag=secure-access-config
@@ -56,7 +59,10 @@ The package registers these routes (all names are prefixed with `secure-access.`
 | URL | Name | Purpose |
 | --- | --- | --- |
 | `GET /register` | `secure-access.register` | Account registration form |
-| `POST /register` | `secure-access.register.store` | Create an account and begin mandatory MFA enrollment |
+| `POST /register` | `secure-access.register.store` | Validate the profile and email an activation link |
+| `GET /register/sent` | `secure-access.register.sent` | "Check your email" page |
+| `GET /register/activate/{registration}/{token}` | `secure-access.register.activate` | Activation page (signed link from the email) |
+| `POST /register/activate/{registration}/{token}` | `secure-access.register.activate.store` | Create the account and begin mandatory MFA enrollment |
 | `GET /login` | `secure-access.login` | Username / email + password form |
 | `POST /logout` | `secure-access.logout` | Log out |
 | `GET /login/mfa` | `secure-access.challenge` | Choose an MFA method during login |
@@ -84,20 +90,31 @@ login page, e.g. in `bootstrap/app.php`:
 
 ### Registration flow
 
-Visit `/register` to create an account. The form requires an email address, a confirmed password with
-at least 12 characters, mixed-case letters, numbers and symbols, and a name and username when those
-columns exist on the configured user model's table. Laravel's `Password::defaults()` rules are also
-applied, so stronger application-wide password rules are respected. Email and username inputs are trimmed, stored in
-lowercase, and checked case-insensitively for existing login identifiers, including verified additional
-email addresses. The `email_column`, `username_column`, and `user_model` settings are respected; request
-field names remain `email` and `username`. Custom tables must still provide defaults for any other
-required columns.
-
-Registration creates a user with a hashed password but **does not authenticate them or mark MFA verified**.
-It starts the same expiring pending session used after a successful password check and redirects to
-`secure-access.setup`. Only proving possession of an MFA method completes authentication and allows access
-to routes protected by `secure-access.mfa`. If enrollment expires, log in with the new credentials to
-resume setup. Registration does not mark the primary email address verified.
+1. **Profile.** `/register` asks for the user's name, date of birth, email address and gender. The user must
+   agree to the Terms of Service and confirm they have read and understand the Privacy Policy
+   (`registration.terms_url` / `registration.privacy_url`). Anyone younger than `minimum_age` in
+   `config/coppa.php` (default `13`, env `COPPA_MINIMUM_AGE`) is rejected and nothing they entered is
+   stored. The email address is trimmed, lowercased and must not already be used by any account (including
+   verified additional addresses). Gender options come from `registration.genders`.
+2. **Activation email.** The details are kept in `pending_registrations` (no user is created yet) and an
+   activation link is emailed. The link is signed, expires after `registration.activation_expires` minutes
+   (default `60`) and can be used once; registering again with the same address replaces the details and
+   invalidates earlier links (at most once every `registration.resend_after` seconds, default `60`). Expired rows can be removed with
+   `php artisan model:prune --model="SecureAccess\Models\PendingRegistration"`.
+3. **Activation page.** The link opens a page where the user may upload a profile photo (optional; JPG, PNG,
+   GIF or WebP up to `registration.profile_photos.max_size` KB, stored on `registration.profile_photos.disk`
+   in `profile_photo_path`) and must choose a username (when the username column exists) and a password,
+   entered twice. Passwords need at least 12 characters, mixed-case letters, numbers and symbols, and
+   Laravel's `Password::defaults()` rules are also applied. Usernames are trimmed, lowercased and checked
+   case-insensitively against existing login identifiers. The account is then created with the primary
+   email address marked verified. The `email_column`, `username_column`, and `user_model` settings are
+   respected; optional columns (`name`, `date_of_birth`, `gender`, `profile_photo_path`, consent
+   timestamps, `email_verified_at`) are only written when they exist. Custom tables must still provide
+   defaults for any other required columns.
+4. **MFA.** Activation **does not authenticate the user or mark MFA verified**. It starts the same expiring
+   pending session used after a successful password check and redirects to `secure-access.setup`. Only
+   proving possession of an MFA method completes authentication, after which the user is sent to `home`
+   (the dashboard). If enrollment expires, log in with the new credentials to resume setup.
 
 Routes use `routes.prefix` (empty by default), and registration submissions share the login per-IP
 throttle. The package does not add homepage navigation or unprefixed `login` / `register` route names.
@@ -181,6 +198,8 @@ See [`config/secure-access.php`](config/secure-access.php) for all options, incl
 - `mfa.methods` – enable/disable individual method types
 - `mfa.pending_login_timeout` – minutes allowed between the password step and the second factor
 - `routes.prefix`, `routes.middleware`, `routes.throttle` – route registration and per-IP rate limiting
+- `registration.*` – terms/privacy URLs, gender options, activation link lifetime and profile photo storage
+- `coppa.minimum_age` (in `config/coppa.php`, default `13`) – minimum age required to register
 - `home` – where users are redirected after logging in (default `/dashboard`)
 - `username_column`, `email_column`, `user_model`, `guard`
 

@@ -2,22 +2,63 @@
 
 namespace SecureAccess\Tests\Feature;
 
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rules\Password;
+use SecureAccess\Models\PendingRegistration;
 use SecureAccess\Models\UserEmail;
+use SecureAccess\Notifications\ActivateAccount;
 use SecureAccess\SecureAccess;
 use SecureAccess\Tests\Fixtures\User;
 use SecureAccess\Tests\TestCase;
 
 class RegistrationTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Notification::fake();
+        Storage::fake('public');
+        $this->travelTo(now()->setDate(2026, 6, 15)->startOfDay());
+    }
+
     protected function registration(array $attributes = [])
     {
         return $this->post(route('secure-access.register.store'), $attributes + [
             'name' => 'New User',
-            'username' => 'newuser',
+            'date_of_birth' => '2000-01-31',
             'email' => 'new@example.com',
+            'gender' => 'non_binary',
+            'terms' => '1',
+            'privacy' => '1',
+        ]);
+    }
+
+    protected function activationUrl(string $email = 'new@example.com'): string
+    {
+        $url = null;
+
+        Notification::assertSentOnDemand(ActivateAccount::class, function (ActivateAccount $notification, array $channels, object $notifiable) use ($email, &$url) {
+            if ($notifiable->routes['mail'] !== $email) {
+                return false;
+            }
+
+            $url = $notification->activationUrl();
+
+            return true;
+        });
+
+        return $url;
+    }
+
+    protected function activate(string $url, array $attributes = [])
+    {
+        return $this->post($url, $attributes + [
+            'username' => 'newuser',
             'password' => 'Secure-password123!',
             'password_confirmation' => 'Secure-password123!',
         ]);
@@ -28,33 +69,71 @@ class RegistrationTest extends TestCase
         $this->get('/register')->assertOk()
             ->assertSee('Register')
             ->assertSee('name="name"', false)
-            ->assertSee('name="username"', false)
-            ->assertSee('name="password_confirmation"', false)
+            ->assertSee('name="date_of_birth"', false)
+            ->assertSee('max="2013-06-15"', false)
+            ->assertSee('name="email"', false)
+            ->assertSee('name="gender"', false)
+            ->assertSee('value="non_binary"', false)
+            ->assertSee('name="terms"', false)
+            ->assertSee('name="privacy"', false)
+            ->assertSee('href="/terms"', false)
+            ->assertSee('href="/privacy"', false)
+            ->assertDontSee('name="username"', false)
+            ->assertDontSee('name="password"', false)
             ->assertSee(route('secure-access.register.store'));
     }
 
-    public function test_registration_requires_mfa_enrollment_before_authentication(): void
+    public function test_full_registration_activation_and_mfa_flow(): void
     {
-        $this->registration([
-            'email' => ' New@Example.com ',
+        $this->registration(['email' => ' New@Example.com ', 'locked_at' => now()])
+            ->assertRedirect(route('secure-access.register.sent'));
+        $this->get(route('secure-access.register.sent'))->assertOk()->assertSee('new@example.com');
+
+        $this->assertSame(0, User::count());
+        $this->assertGuest();
+        $pending = PendingRegistration::sole();
+        $this->assertSame('New User', $pending->name);
+        $this->assertSame('2000-01-31', $pending->date_of_birth->toDateString());
+        $this->assertSame('non_binary', $pending->gender);
+        $this->assertNotNull($pending->terms_accepted_at);
+        $this->assertNotNull($pending->privacy_policy_accepted_at);
+
+        $url = $this->activationUrl();
+        $this->assertStringNotContainsString($pending->token, $url);
+
+        $this->get($url)->assertOk()
+            ->assertSee('name="profile_photo"', false)
+            ->assertSee('name="username"', false)
+            ->assertSee('name="password"', false)
+            ->assertSee('name="password_confirmation"', false)
+            ->assertSee('enctype="multipart/form-data"', false);
+
+        $this->activate($url, [
             'username' => ' NewUser ',
-            'locked_at' => now(),
-            'email_verified_at' => now(),
+            'profile_photo' => UploadedFile::fake()->image('me.png', 200, 200),
         ])->assertRedirect(route('secure-access.setup'));
 
         $user = User::sole();
         $this->assertSame('New User', $user->name);
         $this->assertSame('newuser', $user->username);
         $this->assertSame('new@example.com', $user->email);
-        $this->assertTrue(Hash::check('Secure-password123!', $user->password));
-        $this->assertNull($user->email_verified_at);
+        $this->assertSame('2000-01-31', substr($user->date_of_birth, 0, 10));
+        $this->assertSame('non_binary', $user->gender);
+        $this->assertNotNull($user->terms_accepted_at);
+        $this->assertNotNull($user->privacy_policy_accepted_at);
+        $this->assertNotNull($user->email_verified_at);
         $this->assertNull($user->locked_at);
+        $this->assertTrue(Hash::check('Secure-password123!', $user->password));
+        $this->assertStringStartsWith('profile-photos/', $user->profile_photo_path);
+        Storage::disk('public')->assertExists($user->profile_photo_path);
+        $this->assertSame(0, PendingRegistration::count());
+
+        // Activation does not authenticate: MFA enrollment is required first.
         $this->assertGuest();
         $this->assertFalse(SecureAccess::mfaVerified($user));
         $this->assertSame((string) $user->id, session('secure_access.pending.user_id'));
-
         $this->get('/dashboard')->assertRedirect(route('secure-access.login'));
-        $this->get(route('secure-access.security'))->assertRedirect(route('secure-access.login'));
+
         $this->get(route('secure-access.setup'))->assertOk();
         $this->get(route('secure-access.setup.create', 'totp'))->assertOk();
         $secret = session('secure_access.setup.totp')['secret'];
@@ -67,55 +146,144 @@ class RegistrationTest extends TestCase
             ->assertRedirect('/dashboard');
         $this->assertAuthenticatedAs($user);
         $this->assertTrue(SecureAccess::mfaVerified($user));
-        $this->assertNull(session('secure_access.pending'));
         $this->get('/dashboard')->assertOk();
     }
 
-    public function test_duplicate_identifiers_are_rejected_case_insensitively(): void
+    public function test_profile_photo_is_optional(): void
     {
-        $this->createUser();
+        $this->registration();
+        $this->activate($this->activationUrl())->assertRedirect(route('secure-access.setup'));
 
-        $this->registration(['email' => 'TAYLOR@example.com', 'username' => 'TAYLOR'])
-            ->assertSessionHasErrors(['email', 'username']);
-        $this->assertSame(1, User::count());
-        $this->assertGuest();
-        $this->assertNull(session('secure_access.pending'));
+        $this->assertNull(User::sole()->profile_photo_path);
+        $this->assertSame([], Storage::disk('public')->allFiles());
     }
 
-    public function test_verified_additional_email_cannot_be_registered(): void
+    public function test_profile_photo_must_be_a_small_image(): void
+    {
+        config(['secure-access.registration.profile_photos.max_size' => 100]);
+        $this->registration();
+        $url = $this->activationUrl();
+
+        $this->activate($url, ['profile_photo' => UploadedFile::fake()->create('me.pdf', 10, 'application/pdf')])
+            ->assertSessionHasErrors('profile_photo');
+        $this->activate($url, ['profile_photo' => UploadedFile::fake()->image('me.png')->size(500)])
+            ->assertSessionHasErrors('profile_photo');
+
+        $this->assertSame(0, User::count());
+        $this->assertSame([], Storage::disk('public')->allFiles());
+    }
+
+    public function test_users_younger_than_the_coppa_minimum_age_cannot_register(): void
+    {
+        $this->assertSame(13, config('coppa.minimum_age'));
+
+        $this->registration(['date_of_birth' => '2013-06-16'])
+            ->assertSessionHasErrors(['date_of_birth' => 'You must be at least 13 years old to register.']);
+        $this->registration(['date_of_birth' => '2030-01-01'])->assertSessionHasErrors('date_of_birth');
+        $this->assertSame(0, PendingRegistration::count());
+        Notification::assertNothingSent();
+
+        $this->registration(['date_of_birth' => '2013-06-15'])->assertSessionHasNoErrors();
+        $this->assertSame(1, PendingRegistration::count());
+    }
+
+    public function test_minimum_age_is_read_from_the_coppa_config(): void
+    {
+        config(['coppa.minimum_age' => 18]);
+
+        $this->get(route('secure-access.register'))->assertSee('max="2008-06-15"', false)->assertSee('at least 18 years old');
+        $this->registration(['date_of_birth' => '2008-06-16'])
+            ->assertSessionHasErrors(['date_of_birth' => 'You must be at least 18 years old to register.']);
+        $this->registration(['date_of_birth' => '2008-06-15'])->assertSessionHasNoErrors();
+    }
+
+    public function test_terms_and_privacy_policy_must_be_accepted(): void
+    {
+        $this->registration(['terms' => null, 'privacy' => '0'])->assertSessionHasErrors(['terms', 'privacy']);
+        $this->assertSame(0, PendingRegistration::count());
+        Notification::assertNothingSent();
+    }
+
+    public function test_required_fields_and_formats_are_validated(): void
+    {
+        $this->post(route('secure-access.register.store'), [])
+            ->assertSessionHasErrors(['name', 'date_of_birth', 'email', 'gender', 'terms', 'privacy']);
+        $this->registration(['gender' => 'unknown', 'date_of_birth' => '31/01/2000', 'email' => ['new@example.com']])
+            ->assertSessionHasErrors(['gender', 'date_of_birth', 'email']);
+        $this->registration(['date_of_birth' => '1899-12-31'])->assertSessionHasErrors('date_of_birth');
+        $this->assertSame(0, PendingRegistration::count());
+    }
+
+    public function test_duplicate_emails_are_rejected_case_insensitively(): void
     {
         $user = $this->createUser();
         UserEmail::create(['user_id' => $user->id, 'email' => 'work@example.com', 'verified_at' => now()]);
 
+        $this->registration(['email' => 'TAYLOR@example.com'])->assertSessionHasErrors('email');
         $this->registration(['email' => 'WORK@example.com'])->assertSessionHasErrors('email');
+        $this->assertSame(0, PendingRegistration::count());
+    }
+
+    public function test_registering_again_replaces_the_pending_registration_and_invalidates_old_links(): void
+    {
+        $this->registration();
+        $first = $this->activationUrl();
+        Notification::fake();
+
+        // Repeated submissions within the resend window neither send nor replace anything.
+        $this->registration(['name' => 'Too Soon'])->assertRedirect(route('secure-access.register.sent'));
+        Notification::assertNothingSent();
+        $this->assertSame('New User', PendingRegistration::sole()->name);
+        $this->get($first)->assertOk();
+
+        $this->travel(61)->seconds();
+        $this->registration(['name' => 'Renamed User']);
+        $second = $this->activationUrl();
+
+        $this->assertSame('Renamed User', PendingRegistration::sole()->name);
+        $this->get($first)->assertRedirect(route('secure-access.register'))->assertSessionHasErrors('activation');
+        $this->get($second)->assertOk();
+    }
+
+    public function test_activation_links_are_signed_expiring_and_single_use(): void
+    {
+        $this->registration();
+        $url = $this->activationUrl();
+
+        $this->get($url.'x')->assertRedirect(route('secure-access.register'))->assertSessionHasErrors('activation');
+        $this->activate(str_replace('/activate/1/', '/activate/2/', $url))->assertSessionHasErrors('activation');
+        $this->assertSame(0, User::count());
+
+        $this->activate($url)->assertRedirect(route('secure-access.setup'));
+        $this->activate($url, ['username' => 'another'])->assertSessionHasErrors('activation');
+        $this->assertSame(1, User::count());
+
+        Notification::fake();
+        $this->registration(['email' => 'late@example.com']);
+        $late = $this->activationUrl('late@example.com');
+        $this->travel(61)->minutes();
+        $this->get($late)->assertRedirect(route('secure-access.register'))->assertSessionHasErrors('activation');
+        $this->activate($late, ['username' => 'late'])->assertSessionHasErrors('activation');
         $this->assertSame(1, User::count());
     }
 
-    public function test_usernames_cannot_shadow_an_existing_email_identifier(): void
+    public function test_activation_validates_username_and_password(): void
     {
         $this->createUser();
+        $this->registration();
+        $url = $this->activationUrl();
 
-        $this->registration(['username' => 'taylor@example.com'])->assertSessionHasErrors('username');
+        $this->activate($url, ['username' => 'TAYLOR'])->assertSessionHasErrors('username');
+        $this->activate($url, ['username' => 'taylor@example.com'])->assertSessionHasErrors('username');
+        $this->activate($url, ['username' => ['x']])->assertSessionHasErrors('username');
+        $this->activate($url, ['password_confirmation' => 'different'])->assertSessionHasErrors('password');
+        $this->activate($url, ['password' => 'short', 'password_confirmation' => 'short'])->assertSessionHasErrors('password');
+        $this->activate($url, ['password' => 'onlylowercaseletters', 'password_confirmation' => 'onlylowercaseletters'])
+            ->assertSessionHasErrors('password');
+        $this->post($url, [])->assertSessionHasErrors(['username', 'password']);
+
         $this->assertSame(1, User::count());
-    }
-
-    public function test_password_confirmation_and_required_fields_are_validated(): void
-    {
-        $this->registration(['password_confirmation' => 'different'])->assertSessionHasErrors('password');
-        $this->registration(['password' => 'short', 'password_confirmation' => 'short'])
-            ->assertSessionHasErrors('password');
-        $this->registration(['password' => 'onlylowercaseletters', 'password_confirmation' => 'onlylowercaseletters'])
-            ->assertSessionHasErrors('password');
-        $this->post(route('secure-access.register.store'), [])
-            ->assertSessionHasErrors(['name', 'username', 'email', 'password']);
-        $this->assertSame(0, User::count());
-    }
-
-    public function test_invalid_identifier_types_are_validation_errors(): void
-    {
-        $this->registration(['email' => ['new@example.com'], 'username' => ['newuser']])
-            ->assertSessionHasErrors(['email', 'username']);
-        $this->assertSame(0, User::count());
+        $this->assertSame(1, PendingRegistration::count());
     }
 
     public function test_application_password_defaults_are_respected(): void
@@ -124,11 +292,23 @@ class RegistrationTest extends TestCase
         Password::defaults(fn () => Password::min(24));
 
         try {
-            $this->registration()->assertSessionHasErrors('password');
+            $this->registration();
+            $this->activate($this->activationUrl())->assertSessionHasErrors('password');
             $this->assertSame(0, User::count());
         } finally {
             Password::$defaultCallback = $defaults;
         }
+    }
+
+    public function test_email_claimed_before_activation_is_rejected(): void
+    {
+        $this->registration();
+        $url = $this->activationUrl();
+        $this->createUser(['email' => 'new@example.com', 'username' => 'someone']);
+
+        $this->activate($url)->assertRedirect(route('secure-access.register'))->assertSessionHasErrors('email');
+        $this->assertSame(1, User::count());
+        $this->assertSame(0, PendingRegistration::count());
     }
 
     public function test_configured_model_and_identifier_columns_are_used(): void
@@ -144,74 +324,81 @@ class RegistrationTest extends TestCase
             'secure-access.email_column' => 'email_address',
         ]);
 
-        $this->registration()->assertRedirect(route('secure-access.setup'));
+        $this->registration();
+        $this->activate($this->activationUrl())->assertRedirect(route('secure-access.setup'));
         $user = RegistrationUser::sole();
         $this->assertSame('newuser', $user->handle);
         $this->assertSame('new@example.com', $user->email_address);
         $this->assertTrue(Hash::check('Secure-password123!', $user->password));
 
-        $this->registration(['email' => 'NEW@example.com', 'username' => 'NEWUSER'])
-            ->assertSessionHasErrors(['email', 'username']);
+        $this->registration(['email' => 'NEW@example.com'])->assertSessionHasErrors('email');
         $this->passwordStep('NEWUSER', 'Secure-password123!')->assertRedirect(route('secure-access.challenge'));
     }
 
-    public function test_name_and_username_are_omitted_when_the_columns_do_not_exist(): void
+    public function test_optional_columns_are_skipped_when_they_do_not_exist(): void
     {
         Schema::table('users', function ($table) {
             $table->dropUnique(['username']);
-            $table->dropColumn(['name', 'username']);
+            $table->dropColumn(['name', 'username', 'date_of_birth', 'gender', 'profile_photo_path']);
         });
 
-        $this->get(route('secure-access.register'))->assertOk()
-            ->assertDontSee('name="name"', false)
-            ->assertDontSee('name="username"', false);
-        $this->registration(['name' => null, 'username' => null])->assertRedirect(route('secure-access.setup'));
+        $this->registration();
+        $url = $this->activationUrl();
+        $this->get($url)->assertOk()->assertDontSee('name="username"', false);
+        $this->activate($url, ['username' => null])->assertRedirect(route('secure-access.setup'));
+        $this->assertSame('new@example.com', User::sole()->email);
         $this->passwordStep('new@example.com', 'Secure-password123!')->assertRedirect(route('secure-access.challenge'));
     }
 
-    public function test_registration_pending_session_expires(): void
+    public function test_mfa_enrollment_after_activation_expires(): void
     {
-        $this->registration()->assertRedirect(route('secure-access.setup'));
+        $this->registration();
+        $this->activate($this->activationUrl())->assertRedirect(route('secure-access.setup'));
         $this->travel(11)->minutes();
 
         $this->get(route('secure-access.setup'))->assertRedirect(route('secure-access.login'));
         $this->assertGuest();
     }
 
-    public function test_registration_cannot_replace_or_unlock_an_existing_account(): void
+    public function test_authenticated_users_cannot_register_or_activate(): void
     {
-        $user = $this->createUser(['locked_at' => now(), 'failed_login_attempts' => 3]);
-        $this->registration(['username' => $user->username, 'email' => $user->email])
-            ->assertSessionHasErrors(['email', 'username']);
-
-        $this->assertNotNull($user->fresh()->locked_at);
-        $this->assertSame(3, (int) $user->fresh()->failed_login_attempts);
-        $this->assertSame(1, User::count());
-        $this->passwordStep()->assertSessionHasErrors('identifier');
-        $this->get(route('secure-access.setup'))->assertRedirect(route('secure-access.login'));
-        $this->assertGuest();
-    }
-
-    public function test_authenticated_users_cannot_start_registration(): void
-    {
+        $this->registration();
+        $url = $this->activationUrl();
         $user = $this->createUser();
         $this->actingAs($user)->withSession([SecureAccess::MFA_VERIFIED_SESSION_KEY => (string) $user->id]);
 
         $this->get(route('secure-access.register'))->assertRedirect('/dashboard');
-        $this->registration()->assertRedirect('/dashboard');
+        $this->registration(['email' => 'other@example.com'])->assertRedirect('/dashboard');
+        $this->get($url)->assertRedirect('/dashboard');
+        $this->activate($url)->assertRedirect('/dashboard');
         $this->assertSame(1, User::count());
+        $this->assertSame(1, PendingRegistration::count());
     }
 
-    public function test_registration_clears_unverified_authentication_and_stale_mfa_state(): void
+    public function test_activation_clears_unverified_authentication_and_stale_state(): void
     {
+        $this->registration();
+        $url = $this->activationUrl();
         $user = $this->createUser();
-        $this->actingAs($user)->withSession([SecureAccess::MFA_VERIFIED_SESSION_KEY => 'stale']);
+        $this->actingAs($user)->withSession([
+            SecureAccess::MFA_VERIFIED_SESSION_KEY => 'stale',
+            'url.intended' => 'https://example.test/elsewhere',
+        ]);
 
-        $this->registration()->assertRedirect(route('secure-access.setup'));
+        $this->activate($url)->assertRedirect(route('secure-access.setup'));
         $this->assertGuest();
         $this->assertNull(session(SecureAccess::MFA_VERIFIED_SESSION_KEY));
+        $this->assertNull(session('url.intended'));
         $this->assertNotSame((string) $user->id, session('secure_access.pending.user_id'));
-        $this->get('/dashboard')->assertRedirect(route('secure-access.login'));
+    }
+
+    public function test_expired_pending_registrations_are_prunable(): void
+    {
+        $this->registration();
+        $this->assertSame(0, (new PendingRegistration)->prunable()->count());
+
+        $this->travel(61)->minutes();
+        $this->assertSame(1, (new PendingRegistration)->prunable()->count());
     }
 
     public function test_registration_posts_are_throttled(): void
@@ -220,7 +407,7 @@ class RegistrationTest extends TestCase
 
         $this->post(route('secure-access.register.store'), [])->assertSessionHasErrors('email');
         $this->post(route('secure-access.register.store'), [])->assertStatus(429);
-        $this->assertSame(0, User::count());
+        $this->assertSame(0, PendingRegistration::count());
     }
 }
 
