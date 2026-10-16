@@ -3,10 +3,12 @@
 namespace SecureAccess\Tests\Fixtures;
 
 use Illuminate\Foundation\Auth\User as Authenticatable;
+use SecureAccess\Concerns\HasAccessGroups;
 use SecureAccess\Concerns\HasSecureAccess;
 
 class User extends Authenticatable
 {
+    use HasAccessGroups;
     use HasSecureAccess;
 
     protected $table = 'users';

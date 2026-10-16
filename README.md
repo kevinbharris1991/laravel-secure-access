@@ -206,6 +206,217 @@ See [`config/secure-access.php`](config/secure-access.php) for all options, incl
 - `home` – where users are redirected after logging in (default `/dashboard`)
 - `username_column`, `email_column`, `user_model`, `guard`
 
+## Optional group-based authorization
+
+ACL is an additional, **opt-in** layer. It does not change authentication, MFA,
+registration, existing routes, or `HasSecureAccess`. No groups are assigned and no
+camp data is seeded automatically.
+
+### Enable and assign permissions
+
+Publish the package configuration with
+`php artisan vendor:publish --tag=secure-access-config`, set `enabled` to `true` in
+`config/secure-access-acl.php`, clear/rebuild any configuration cache, then run
+`php artisan migrate`. The four namespaced ACL tables are loaded only when enabled:
+groups, permissions, group grants, and polymorphic user memberships. User IDs may be
+integer or string/UUID identifiers (up to 64 characters). No changes to the users
+table are required.
+
+Add `SecureAccess\Concerns\HasAccessGroups` to your Eloquent authenticatable model
+alongside any existing traits. Create groups/grants in trusted administrative code:
+
+```php
+use SecureAccess\Models\AccessGroup;
+use SecureAccess\Models\Permission;
+
+$group = AccessGroup::firstOrCreate(['key' => 'editors'], ['name' => 'Editors']);
+$permission = Permission::firstOrCreate(
+    ['key' => 'public_content.update_all'],
+    ['scope' => 'all'],
+);
+$group->permissions()->syncWithoutDetaching([$permission->id]);
+$user->accessGroups()->syncWithoutDetaching([$group->id]);
+
+$user->hasAccessPermission('public_content.update_all'); // true
+$user->accessGroups()->detach($group); // revoke membership
+```
+
+Permissions are the union of a user's current groups. Checks query current grants,
+so loaded relationships do not retain revoked access. Missing permissions, missing
+membership, disabled ACL, and unauthenticated users are denied. There is no implicit
+superuser group, wildcard, deny grant, or permission inheritance. Protect group and
+grant management endpoints; never accept membership or grant changes from public
+registration input. Hard-deleting a model using the trait detaches its memberships;
+soft deletion preserves them. Bulk query deletes bypass model events: detach
+memberships explicitly when using those operations. Polymorphic memberships do not
+have a foreign key to your application's user table.
+
+### Scopes, gates, policies, and routes
+
+Each permission has an exact, stable key and a scope:
+
+| Scope | Required context |
+|---|---|
+| `all` | Membership alone grants this exact permission |
+| `own` | A subject whose `isOwnedBy($user)` returns true |
+| `assigned` | A subject whose `isAssignedTo($user)` returns true |
+
+Unknown scopes fail closed. For custom permissions, set `scope` explicitly; key
+suffixes are naming conventions, not a scope parser. Use `*_own`, `*_assigned`,
+`*_all`, `*_aggregate`, and `*_only` consistently. The camp seeder infers `own` and
+`assigned` from its keys; other preset keys use `all`.
+Scope belongs to the unique permission key, not to an individual group grant:
+use separate keys for different scopes. Guest `*_public` permissions authorize
+only the public-data operation; the host must restrict its corresponding query.
+`reports.read_aggregate` and `reports.read_all` are independent permissions.
+`manage_all` does not implicitly grant separate `read_all` or `update_all` keys;
+use the exact key that a route declares.
+
+Use the namespaced Laravel Gate (also usable with native `@can` and `can` middleware):
+
+```php
+use Illuminate\Support\Facades\Gate;
+use SecureAccess\Authorization\ScopeContext;
+
+// Obtain ownership/assignment from trusted persisted data, not request fields.
+$subject = new ScopeContext(
+    ownerId: $booking->user_id,
+    assignedUserIds: $booking->assignedUsers()->pluck('id')->all(),
+);
+Gate::authorize('secure-access', ['bookings.read_own', $subject]);
+```
+
+For an owned **create** action, build the context from the authenticated user's
+identifier, and set the new record's owner server-side. Do not trust submitted owner
+or assignee IDs. `ScopeContext` compares these IDs to `getAuthIdentifier()`. In
+multi-tenant applications also enforce tenant boundaries in policies/query scopes.
+
+Your bound Eloquent models can implement `SecureAccess\Authorization\AccessScope`
+with `isOwnedBy(Authenticatable $user): bool` and
+`isAssignedTo(Authenticatable $user): bool`. This enables route checks:
+
+```php
+Route::get('/bookings/{booking}', [BookingController::class, 'show'])
+    ->middleware(['secure-access.mfa', 'secure-access.permission:bookings.read_own,booking']);
+
+Route::get('/reports', [ReportController::class, 'index'])
+    ->middleware(['secure-access.mfa', 'secure-access.permission:reports.read_aggregate']);
+```
+
+The optional second middleware argument is a **bound route parameter**, not request
+input; it must implement `AccessScope`. Missing/unbound contexts return 403. Ensure
+Laravel's `SubstituteBindings` runs before the permission middleware (as in the
+standard `web` middleware group). Permission checks run before controller queries,
+not before route model binding. Keep MFA middleware on protected routes: ACL never
+marks a session MFA-verified. Middleware uses the request's current auth guard;
+select the appropriate guard with your application's authentication middleware.
+
+Alternatively, delegate from a resource policy to
+`app(SecureAccess\Authorization\AccessControl::class)->allows($user, $key, $model)`.
+Combine that with your business rules and tenant/query scopes. Laravel's normal
+Gate `before` callbacks still apply to Gate-based checks; audit application-wide
+superuser overrides. The direct `hasAccessPermission` method checks only package
+grants, without application Gate overrides.
+
+An aggregate/read-only key authorizes an operation, **not a data projection**.
+Return only aggregate/redacted fields from its endpoint. Do not return full
+clinical records under an aggregate, dietary, or safety-alert permission.
+For collection endpoints, scope the query to permitted owners/assignments before
+loading records; a permission check does not automatically filter SQL results.
+
+### Permission-aware dashboard and navigation
+
+The optional `Dashboard`/`DashboardItem` classes have no routes, views, or global
+registration. Use them for widgets or navigation entries:
+
+```php
+use SecureAccess\Dashboard\Dashboard;
+use SecureAccess\Dashboard\DashboardItem;
+
+$items = app(Dashboard::class)->resolveFor($request->user(), [
+    'summary' => new DashboardItem(
+        'reports.read_aggregate',
+        fn () => ['count' => Camper::query()->count()],
+    ),
+    'my-booking' => new DashboardItem(
+        'bookings.read_own',
+        fn () => ['url' => route('bookings.show', $booking)],
+        $subject,
+    ),
+]);
+```
+
+Unauthorized items are omitted, preserving keys, **without invoking their
+closures**. Put protected queries, view rendering, and expensive work inside the
+closure, not before item construction. `visibleTo($user)` checks a single item;
+`resolveFor($user)` authorizes again before invoking it and throws on denial.
+Use the same permission and scope on the destination route/API: hiding a link is
+not backend authorization.
+
+Blade supports both package and standard Gate conditionals:
+
+```blade
+@secureAccess('bookings.read_own', $subject)
+    {{-- Only load/render protected content inside this block. --}}
+@endsecureAccess
+
+@can('secure-access', ['reports.read_aggregate'])
+    <a href="/reports">Reports</a>
+@endcan
+```
+
+`@elsesecureAccess(...)` and `@else` are supported by the package conditional.
+Neither dashboard nor Blade checks undo data already loaded by a controller.
+
+### Optional camp preset: 12 groups
+
+Review/publish `config/secure-access-camp.php`, enable ACL, migrate, then run:
+
+```bash
+php artisan secure-access:seed-camp
+```
+
+The command is transactional and idempotent. It adds missing groups, permissions,
+and grants, preserves existing names/custom grants, rejects conflicting permission
+scopes, and **never changes user memberships**. Re-running restores preset grants
+that were removed; edit the published preset before re-seeding to customize it.
+It can also be invoked from a host application's seeder via
+`app(SecureAccess\Authorization\CampPreset::class)->seed()`.
+
+| # | Group | Representative grants / boundaries |
+|---|---|---|
+| 1 | Executive Director | System/audit read, executive users, aggregate camper/incident reports, financials, grant approval, public/board content; no raw clinical grant |
+| 2 | Administrative Directors | Staff/groups/credentials, rosters/cabins/policies, administrative intake, compliance and exports |
+| 3 | Medical & Nursing Staff | Medications/dosages/stock, health profiles/protocols, clinical incidents; no finance/content grants |
+| 4 | Behavioral Support Services | Support plans, behavior logs, limited health context read-only, consultation notes |
+| 5 | Accessibility & Adaptive Services | Accommodation read/update, adaptive equipment, facility audits, accessibility work orders |
+| 6 | Program Directors | Activity schedules/adaptations, participation, safety alerts read-only; no clinical history |
+| 7 | Counselors & DSPs | Assigned care plans/behavior strategies/allergy alerts, assigned daily logs and incident flags |
+| 8 | Facilities & Cabin Maintenance | Work orders, inspections, emergency alerts; no camper records |
+| 9 | Housekeeping | Sanitation/room requirements, own supply requests; no camper records |
+| 10 | Catering & Dietary Support | Dietary read-only, menus/ingredients/allergen notices, special meals; no clinical history |
+| 11 | Finance & Accounting | Billing/payments/refunds, payroll, grant funds/applications, financial reports; no clinical records |
+| 12 | Guest | Own bookings/payments/accommodations/health/diet disclosures, public meals/activities/events, own activity commitments and grant applications |
+
+Guest grant applications use `grant_applications.create_own`, `read_own`,
+`update_own`, and `submit_own` (each prefixed `grant_applications.`); they cannot
+read another guest's application or approve applications. Enforce workflow rules
+such as locking submitted applications in your policies.
+
+No automatic first-user Executive Director or subsequent-user Guest assignment is
+included. Bootstrap the director explicitly through trusted provisioning code, then
+attach Guest in your application's verified account-creation flow if desired.
+Never infer executive authority from a user count in a public registration request.
+The preset grants are additive: assigning multiple groups combines their access,
+so department boundaries depend on appropriate membership administration, not
+explicit deny rules.
+
+This is a permission vocabulary and visibility foundation, not camp business
+models, a compliance certification, billing/health workflows, or a complete UI.
+Personalized meal substitutions (including struck-out standard meals), activity
+enrollment, grants review, and data minimization belong to the host application,
+protected by these permissions and its resource policies.
+
 ## Testing
 
 ```bash
