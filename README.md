@@ -68,18 +68,23 @@ The package registers these routes (all names are prefixed with `secure-access.`
 | `POST /logout` | `secure-access.logout` | Log out |
 | `GET /login/mfa` | `secure-access.challenge` | Choose an MFA method during login |
 | `GET /mfa/setup` | `secure-access.setup` | Register an MFA method (forced on first login) |
+| `GET /dashboard` | `secure-access.dashboard` | MFA-protected dashboard with tools based on current group permissions |
 | `GET /security` | `secure-access.security` | Manage MFA methods and additional email addresses |
 | `GET /access` | `secure-access.access.index` | Manage database groups, permissions and group grants |
 | `GET /invitations` | `secure-access.invitations.index` | Create pending registrations with selected groups |
 | `POST /invitations` | `secure-access.invitations.store` | Email a direct activation link |
 
-Protect your application's routes with the `secure-access.mfa` middleware. It redirects guests to the login
+The default post-login destination, `/dashboard`, is provided by the package.
+Like the other package routes, it respects `secure-access.routes.prefix`; if you
+set a prefix, update `secure-access.home` to the prefixed dashboard URL.
+
+Protect your application's additional routes with the `secure-access.mfa` middleware. It redirects guests to the login
 page, and any user that was authenticated without completing MFA in the current session (for example via a
 "remember me" cookie or another login form) is logged out and must log in again with password + MFA:
 
 ```php
 Route::middleware('secure-access.mfa')->group(function () {
-    Route::get('/dashboard', DashboardController::class);
+    Route::get('/reports', ReportsController::class);
 });
 ```
 
@@ -352,8 +357,19 @@ loading records; a permission check does not automatically filter SQL results.
 
 ### Permission-aware dashboard and navigation
 
-The optional `Dashboard`/`DashboardItem` classes have no routes, views, or global
-registration. Use them for widgets or navigation entries:
+The built-in `/dashboard` shows the user's current groups and account security
+tools. Group management, permission management, and invitation cards appear only
+when the user's combined database group grants authorize the corresponding
+operations. Membership and grant changes take effect on the next request; group
+names alone do not grant access. Users without applicable grants (or with ACL
+disabled) still have a working dashboard with account security access.
+
+Only existing package tools are linked; camp-specific workflows remain the host
+application's responsibility. Customize `secure-access::dashboard.index` through
+the published views, or set `secure-access.home` to your application's dashboard.
+
+The `Dashboard`/`DashboardItem` classes can also resolve your application's widgets
+or navigation entries without global registration:
 
 ```php
 use SecureAccess\Dashboard\Dashboard;

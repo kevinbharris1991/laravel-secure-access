@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use SecureAccess\Http\Controllers\ChallengeController;
+use SecureAccess\Http\Controllers\DashboardController;
 use SecureAccess\Http\Controllers\LoginController;
 use SecureAccess\Http\Controllers\RegistrationController;
 use SecureAccess\Http\Controllers\SecurityController;
@@ -43,6 +44,7 @@ Route::middleware(config('secure-access.routes.middleware', ['web']))
         Route::post('mfa/setup/{type}', [SetupController::class, 'store'])->whereIn('type', MfaMethod::TYPES)->middleware('throttle:secure-access')->name('setup.store');
 
         Route::middleware('secure-access.mfa')->group(function () {
+            Route::get('dashboard', DashboardController::class)->name('dashboard');
             Route::get('invitations', [InvitationController::class, 'index'])->name('invitations.index');
             Route::post('invitations', [InvitationController::class, 'store'])->middleware('throttle:secure-access')->name('invitations.store');
             Route::get('access', [AccessManagementController::class, 'index'])->name('access.index');
