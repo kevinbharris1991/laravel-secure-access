@@ -4,7 +4,6 @@ namespace SecureAccess\Tests;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Route;
 use Orchestra\Testbench\TestCase as Orchestra;
 use SecureAccess\Contracts\SmsSender;
 use SecureAccess\Models\MfaMethod;
@@ -25,8 +24,6 @@ abstract class TestCase extends Orchestra
 
         $this->sms = new FakeSmsSender;
         $this->app->instance(SmsSender::class, $this->sms);
-
-        Route::middleware(['web', 'secure-access.mfa'])->get('/dashboard', fn () => 'dashboard');
     }
 
     protected function getPackageProviders($app): array
