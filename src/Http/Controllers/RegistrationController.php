@@ -154,6 +154,8 @@ class RegistrationController extends Controller
             'username' => $this->users->usernameColumn() !== null,
             'maxPhotoSize' => $this->maxPhotoSize(),
             'completeProfile' => $pending->name === null,
+            'acceptTerms' => $pending->terms_accepted_at === null,
+            'acceptPrivacy' => $pending->privacy_policy_accepted_at === null,
             'genders' => $this->genders(),
             'minimumAge' => $this->minimumAge(),
             'latestBirthDate' => $this->latestBirthDate()->toDateString(),
@@ -213,9 +215,15 @@ class RegistrationController extends Controller
                     }
                 }],
                 'gender' => ['required', 'string', Rule::in(array_map('strval', array_keys($this->genders())))],
-                'terms' => ['accepted'],
-                'privacy' => ['accepted'],
             ];
+        }
+
+        if ($pending->terms_accepted_at === null) {
+            $rules['terms'] = ['accepted'];
+        }
+
+        if ($pending->privacy_policy_accepted_at === null) {
+            $rules['privacy'] = ['accepted'];
         }
 
         $validated = $request->validate($rules);
@@ -253,9 +261,15 @@ class RegistrationController extends Controller
                         ], fn ($part) => $part !== null && $part !== '')),
                         'date_of_birth' => $validated['date_of_birth'],
                         'gender' => $validated['gender'],
-                        'terms_accepted_at' => now(),
-                        'privacy_policy_accepted_at' => now(),
                     ]);
+                }
+
+                if ($pending->terms_accepted_at === null) {
+                    $pending->terms_accepted_at = now();
+                }
+
+                if ($pending->privacy_policy_accepted_at === null) {
+                    $pending->privacy_policy_accepted_at = now();
                 }
 
                 // Consuming the registration atomically makes the activation link single-use.
