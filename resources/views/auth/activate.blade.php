@@ -44,6 +44,9 @@
                 </select>
                 @include('secure-access::partials.errors', ['messages' => $errors->get('gender')])
             </div>
+        @endif
+
+        @if ($acceptTerms)
             <div class="sa-mt-4">
                 <label class="sa-text" for="terms">
                     <input id="terms" type="checkbox" name="terms" value="1" @checked(old('terms')) required>
@@ -51,6 +54,8 @@
                 </label>
                 @include('secure-access::partials.errors', ['messages' => $errors->get('terms')])
             </div>
+        @endif
+        @if ($acceptPrivacy)
             <div class="sa-mt-4">
                 <label class="sa-text" for="privacy">
                     <input id="privacy" type="checkbox" name="privacy" value="1" @checked(old('privacy')) required>

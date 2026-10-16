@@ -72,7 +72,7 @@ The package registers these routes (all names are prefixed with `secure-access.`
 | `GET /security` | `secure-access.security` | Manage MFA methods and additional email addresses |
 | `GET /access` | `secure-access.access.index` | Manage database groups, permissions and group grants |
 | `GET /invitations` | `secure-access.invitations.index` | Create pending registrations with selected groups |
-| `POST /invitations` | `secure-access.invitations.store` | Email a direct activation link |
+| `POST /invitations` | `secure-access.invitations.store` | Create an activation link for email or manual delivery |
 
 The default post-login destination, `/dashboard`, is provided by the package.
 Like the other package routes, it respects `secure-access.routes.prefix`; if you
@@ -136,11 +136,20 @@ accounts are deleted. Existing accounts prevent first-user elevation.
 ### Director-created registrations
 
 After completing MFA, an `administrative-director` or `executive-director` can visit
-`/invitations`, enter the new member's email, select one or more database groups, and send
-an activation link. This requires the exact `invitations.create_all` permission; revoking its
+`/invitations`, enter the new member's first name, optional middle initial, last name, date of
+birth, gender and email address, and select one or more database groups. Profile validation
+uses the same minimum age and gender settings as public registration. The name parts are
+stored together as the full name in `pending_registrations`, alongside the other profile
+details, selected groups, expiration and a SHA-256 hash of the activation token.
+This requires the exact `invitations.create_all` permission; revoking its
 database grant immediately removes the ability to create registrations. The director selects an
-expiration of 5 minutes, 15 minutes, 1 day, or 2 weeks. The recipient completes their profile,
-accepts the terms and privacy policy, and chooses sign-in credentials from the emailed link.
+expiration of 5 minutes, 15 minutes, 1 day, 2 days, or 2 weeks, and chooses either to email the
+activation link or to share it themselves. Manual delivery sends no email and displays the
+signed link once on the invitation page after submission; share it securely before leaving
+the page. Re-inviting the same address replaces the details and invalidates its previous link.
+No user account is created until activation. The recipient accepts the terms and privacy
+policy and chooses sign-in credentials without re-entering the director-provided profile.
+Older invitations without a profile still collect those details during activation.
 On activation, the selected groups are assigned instead of the normal Guest assignment. Publicly
 submitted group IDs are ignored. No invitation code is needed.
 
