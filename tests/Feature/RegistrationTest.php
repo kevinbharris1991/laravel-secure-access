@@ -350,6 +350,29 @@ class RegistrationTest extends TestCase
         $this->passwordStep('new@example.com', 'Secure-password123!')->assertRedirect(route('secure-access.challenge'));
     }
 
+    public function test_registration_and_login_work_when_the_user_table_has_no_email_column(): void
+    {
+        Schema::table('users', function ($table) {
+            $table->dropUnique(['email']);
+            $table->dropColumn('email');
+        });
+
+        $this->registration()->assertRedirect(route('secure-access.register.sent'));
+        $this->activate($this->activationUrl())->assertRedirect(route('secure-access.setup'));
+
+        $user = User::sole();
+        $email = UserEmail::sole();
+        $this->assertSame((string) $user->id, (string) $email->user_id);
+        $this->assertSame('new@example.com', $email->email);
+        $this->assertNotNull($email->verified_at);
+
+        $this->assertGuest();
+        $this->passwordStep('new@example.com', 'Secure-password123!')
+            ->assertRedirect(route('secure-access.challenge'));
+
+        $this->registration(['email' => 'NEW@example.com'])->assertSessionHasErrors('email');
+    }
+
     public function test_mfa_enrollment_after_activation_expires(): void
     {
         $this->registration();

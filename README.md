@@ -2,8 +2,9 @@
 
 A Laravel package that hardens your login:
 
-- **Log in with a username or any email address** – the primary `users.email`, the username, or any
-  additional email address the user has registered and verified.
+- **Log in with a username or any email address** – the primary email, the username, or any additional
+  email address the user has registered and verified. If the user table has no configured email column,
+  the primary email is stored as a verified address in `user_emails`.
 - **Account lockout** – the account is locked after **3** consecutive failed attempts (wrong password *or*
   wrong multi-factor code).
 - **Mandatory multi-factor authentication (MFA)** – users must register at least one method the first
@@ -108,7 +109,8 @@ login page, e.g. in `bootstrap/app.php`:
    Laravel's `Password::defaults()` rules are also applied. Usernames are trimmed, lowercased and checked
    case-insensitively against existing login identifiers. The account is then created with the primary
    email address marked verified. The `email_column`, `username_column`, and `user_model` settings are
-   respected; optional columns (`name`, `date_of_birth`, `gender`, `profile_photo_path`, consent
+   respected; if the configured email column is absent, the verified primary email is stored in
+   `user_emails`. Optional profile columns (`name`, `date_of_birth`, `gender`, `profile_photo_path`, consent
    timestamps, `email_verified_at`) are only written when they exist. Custom tables must still provide
    defaults for any other required columns.
 4. **MFA.** Activation **does not authenticate the user or mark MFA verified**. It starts the same expiring
