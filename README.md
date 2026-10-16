@@ -55,6 +55,8 @@ The package registers these routes (all names are prefixed with `secure-access.`
 
 | URL | Name | Purpose |
 | --- | --- | --- |
+| `GET /register` | `secure-access.register` | Account registration form |
+| `POST /register` | `secure-access.register.store` | Create an account and begin mandatory MFA enrollment |
 | `GET /login` | `secure-access.login` | Username / email + password form |
 | `POST /logout` | `secure-access.logout` | Log out |
 | `GET /login/mfa` | `secure-access.challenge` | Choose an MFA method during login |
@@ -71,13 +73,39 @@ Route::middleware('secure-access.mfa')->group(function () {
 });
 ```
 
-If you previously used Breeze/Jetstream/Fortify login routes, remove them and point guests to the package's
+If you previously used Breeze/Jetstream/Fortify login or registration routes, remove them and point guests to the package's
 login page, e.g. in `bootstrap/app.php`:
 
 ```php
 ->withMiddleware(function (Middleware $middleware) {
     $middleware->redirectGuestsTo(fn () => route('secure-access.login'));
 })
+```
+
+### Registration flow
+
+Visit `/register` to create an account. The form requires an email address, a confirmed password with
+at least 12 characters, mixed-case letters, numbers and symbols, and a name and username when those
+columns exist on the configured user model's table. Laravel's `Password::defaults()` rules are also
+applied, so stronger application-wide password rules are respected. Email and username inputs are trimmed, stored in
+lowercase, and checked case-insensitively for existing login identifiers, including verified additional
+email addresses. The `email_column`, `username_column`, and `user_model` settings are respected; request
+field names remain `email` and `username`. Custom tables must still provide defaults for any other
+required columns.
+
+Registration creates a user with a hashed password but **does not authenticate them or mark MFA verified**.
+It starts the same expiring pending session used after a successful password check and redirects to
+`secure-access.setup`. Only proving possession of an MFA method completes authentication and allows access
+to routes protected by `secure-access.mfa`. If enrollment expires, log in with the new credentials to
+resume setup. Registration does not mark the primary email address verified.
+
+Routes use `routes.prefix` (empty by default), and registration submissions share the login per-IP
+throttle. The package does not add homepage navigation or unprefixed `login` / `register` route names.
+Link to the named routes explicitly, for example in your welcome view:
+
+```blade
+<a href="{{ route('secure-access.login') }}">Log in</a>
+<a href="{{ route('secure-access.register') }}">Register</a>
 ```
 
 ### Login flow

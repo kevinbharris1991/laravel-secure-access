@@ -19,6 +19,8 @@
         </div>
 
         <div class="sa-actions">
+            <a class="sa-link" href="{{ route('secure-access.register') }}">{{ __('Register') }}</a>
+
             @if (Route::has('password.request'))
                 <a class="sa-link" href="{{ route('password.request') }}">{{ __('Forgot your password?') }}</a>
             @endif

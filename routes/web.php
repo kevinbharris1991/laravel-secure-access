@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use SecureAccess\Http\Controllers\ChallengeController;
 use SecureAccess\Http\Controllers\LoginController;
+use SecureAccess\Http\Controllers\RegistrationController;
 use SecureAccess\Http\Controllers\SecurityController;
 use SecureAccess\Http\Controllers\SetupController;
 use SecureAccess\Models\MfaMethod;
@@ -11,6 +12,9 @@ Route::middleware(config('secure-access.routes.middleware', ['web']))
     ->prefix(config('secure-access.routes.prefix', ''))
     ->name('secure-access.')
     ->group(function () {
+        Route::get('register', [RegistrationController::class, 'create'])->name('register');
+        Route::post('register', [RegistrationController::class, 'store'])->middleware('throttle:secure-access')->name('register.store');
+
         Route::get('login', [LoginController::class, 'create'])->name('login');
         Route::post('login', [LoginController::class, 'store'])->middleware('throttle:secure-access')->name('login.store');
         Route::post('logout', [LoginController::class, 'destroy'])->name('logout');
