@@ -27,21 +27,31 @@ class Modules
             }
         };
         $crud = ['create', 'read', 'update', 'delete'];
+        $cru = ['create', 'read', 'update'];
         $add('executive-director', ['system', 'audit'], ['read'], 'all', true);
+        $add('executive-director', ['audit'], ['read', 'audit'], 'all', true);
         $add('executive-director', ['campers', 'incidents'], ['read'], 'aggregate', true);
-        $add('executive-director', ['revenue', 'budgets', 'public_content', 'board_documents'], $crud);
-        $add('executive-director', ['financial_approvals'], [...$crud, 'approve'], 'all', true);
+        $add('executive-director', ['revenue', 'budgets'], $cru, 'all', true);
+        $add('executive-director', ['public_content', 'board_documents'], $crud);
+        $add('executive-director', ['financial_approvals'], [...$cru, 'approve'], 'all', true);
         $add('executive-director', ['grant_applications'], ['create', 'read', 'update', 'approve'], 'all', true);
-        $add('administrative-director', ['rosters', 'cabins', 'policies', 'onboarding', 'registrations', 'waivers', 'consents', 'households', 'form_templates'], $crud, 'all', true);
-        $add('administrative-director', ['compliance'], ['read'], 'all', true);
+        $add('administrative-director', ['rosters', 'cabins', 'policies', 'onboarding', 'registrations', 'waivers', 'consents', 'households'], $cru, 'all', true);
+        $add('administrative-director', ['rosters'], [...$cru, 'assign'], 'all', true);
+        $add('administrative-director', ['form_templates'], $crud, 'all', true);
+        $add('administrative-director', ['compliance'], ['read', 'audit'], 'all', true);
         $add('administrative-director', ['administrative_reports'], ['export'], 'all', true);
-        $add('medical-nursing', ['medications', 'medication_stock', 'dosages', 'health_profiles', 'clinical_protocols', 'clinical_incidents'], $crud, 'all', true);
-        $add('behavioral-support', ['support_plans', 'behavior_logs', 'consultation_notes'], $crud, 'all', true);
+        $add('medical-nursing', ['medications', 'medication_stock', 'dosages'], $crud, 'all', true);
+        $add('medical-nursing', ['health_profiles', 'clinical_protocols', 'clinical_incidents', 'care_plans', 'allergy_alerts', 'safety_alerts', 'behavior_health_context'], $cru, 'all', true);
+        $add('medical-nursing', ['health_disclosures', 'dietary_needs'], ['read'], 'all', true);
+        $add('behavioral-support', ['support_plans', 'consultation_notes', 'behavior_strategies'], $crud, 'all', true);
+        $add('behavioral-support', ['behavior_logs'], $cru, 'all', true);
         $add('behavioral-support', ['behavior_health_context'], ['read'], 'only', true);
         $add('accessibility-adaptive', ['accommodations'], ['read', 'update'], 'all', true);
-        $add('accessibility-adaptive', ['adaptive_equipment', 'facility_audits'], $crud);
+        $add('accessibility-adaptive', ['adaptive_equipment'], $crud);
+        $add('accessibility-adaptive', ['facility_audits'], $cru);
         $add('accessibility-adaptive', ['accessibility_work_orders'], ['create', 'read']);
-        $add('program-directors', ['activity_schedules', 'activity_adaptations'], $crud);
+        $add('program-directors', ['activity_schedules', 'activities', 'events'], $crud);
+        $add('program-directors', ['activity_adaptations'], $cru);
         $add('program-directors', ['participation'], ['read', 'update']);
         $add('program-directors', ['safety_alerts'], ['read'], 'only', true);
         $add('counselors-dsps', ['care_plans', 'behavior_strategies', 'allergy_alerts'], ['read'], 'assigned', true);
@@ -53,14 +63,15 @@ class Modules
         $add('housekeeping', ['sanitation_rosters', 'room_requirements'], ['read', 'update']);
         $add('housekeeping', ['supply_requests'], ['create', 'read'], 'own');
         $add('catering-dietary', ['dietary_restrictions'], ['read'], 'only', true);
-        $add('catering-dietary', ['menus', 'ingredients', 'allergen_notices'], $crud);
+        $add('catering-dietary', ['menus', 'ingredients', 'allergen_notices', 'meal_plans'], $cru);
         $add('catering-dietary', ['special_meals'], ['read', 'update'], 'all', true);
         $add('finance-accounting', ['billing', 'payments', 'refunds', 'reimbursements', 'payroll', 'grant_funds'], $crud, 'all', true);
         $add('finance-accounting', ['time_cards'], ['read', 'approve'], 'all', true);
         $add('finance-accounting', ['grant_applications'], ['read', 'update'], 'all', true);
         $add('finance-accounting', ['financial_reports'], ['export'], 'all', true);
         $add('guest', ['bookings'], ['create', 'read', 'update', 'cancel'], 'own', true);
-        $add('guest', ['booking_balances'], ['pay'], 'own', true);
+        $add('finance-accounting', ['booking_balances'], $cru, 'all', true);
+        $add('guest', ['booking_balances'], ['read', 'pay'], 'own', true);
         $add('guest', ['accommodations', 'health_disclosures', 'dietary_needs', 'activity_commitments'], ['create', 'read', 'update'], 'own', true);
         $add('guest', ['meal_plans', 'activities', 'events'], ['read'], 'public');
         $add('guest', ['activities', 'events'], ['read', 'commit'], 'public');
@@ -114,9 +125,12 @@ class Modules
         // Prefer broader grants so the collection filter matches the effective grant.
         usort($candidates, fn ($a, $b) => self::rank($a) <=> self::rank($b));
         foreach (array_unique($candidates) as $permission) {
-            $scope = str_ends_with($permission, '_own') ? 'own' : (str_ends_with($permission, '_assigned') ? 'assigned' : 'all');
-            // A renamed or re-scoped grant must never widen a collection query.
-            if (! Permission::query()->where('key', $permission)->where('scope', $scope)->exists()) {
+            if ($module === 'activity_commitments' && in_array($action, ['create', 'update'], true)) {
+                continue;
+            }
+            $storedScope = Permission::query()->where('key', $permission)->value('scope');
+            if (! in_array($storedScope, ['all', 'own', 'assigned'], true)
+                || ($definition['aggregate'] && $storedScope !== 'all')) {
                 continue;
             }
             if ($record && str_ends_with($permission, '_public') && ! $record->is_public) {
@@ -128,7 +142,7 @@ class Modules
             if ($record && str_ends_with($permission, '_assigned') && ! $record->isAssignedTo($user)) {
                 continue;
             }
-            $subject = $scope === 'all' ? null : self::subject($user, $module, $record);
+            $subject = self::subject($user, $module, $record);
             if (Gate::forUser($user)->allows('secure-access', [$permission, $subject])) {
                 return $permission;
             }
@@ -167,26 +181,33 @@ class Modules
 
         return match ($module) {
             'system', 'audit', 'campers', 'incidents', 'compliance', 'administrative_reports', 'financial_reports' => [],
-            'registrations' => ['name' => $name, 'arrival_date' => $date, 'departure_date' => $date, 'contact' => $name],
+            'registrations' => ['name' => $name, 'arrival_date' => $date, 'departure_date' => $date, 'contact' => $name, 'age_band' => 'nullable|in:under_18,18_34,35_54,55_plus'],
             'bookings' => ['title' => $name, 'arrival_date' => $date, 'departure_date' => $date],
             'medications', 'medication_stock' => ['name' => $name, 'quantity' => 'required|integer|min:0|max:100000', 'instructions' => $text],
-            'dosages' => ['medication' => $name, 'dose' => $name, 'scheduled_at' => 'required|date', 'instructions' => $text],
-            'health_profiles', 'health_disclosures' => ['title' => $name, 'medical_history' => $text, 'medications' => $optional, 'allergies' => $optional],
-            'dietary_needs', 'dietary_restrictions' => ['title' => $name, 'allergens' => $text, 'dietary_instructions' => $text],
+            'dosages' => ['medication' => $name, 'dose' => $name, 'scheduled_at' => 'required|date', 'instructions' => $text, 'administered_at' => 'nullable|date|required_if:status,administered', 'status' => 'nullable|in:scheduled,administered,withheld,missed'],
+            'health_profiles', 'health_disclosures' => ['title' => $name, 'medical_history' => $text, 'medications' => $optional, 'allergies' => $optional, 'dosage' => $optional, 'doctor_contact' => $optional, 'administration_instructions' => $optional],
+            'dietary_needs' => ['title' => $name, 'allergens' => $text, 'dietary_instructions' => $text, 'environmental_allergies' => $optional, 'drug_allergies' => $optional, 'reaction_severity' => $optional],
+            'dietary_restrictions' => ['title' => $name, 'allergens' => $text, 'dietary_instructions' => $text],
             'safety_alerts', 'allergy_alerts' => ['title' => $name, 'alert' => $text, 'response' => $text],
             'behavior_health_context' => ['title' => $name, 'support_context' => $text],
-            'care_plans', 'behavior_strategies', 'support_plans' => ['title' => $name, 'instructions' => $text],
-            'accommodations' => ['title' => $name, 'accessibility_requirements' => $text],
-            'room_requirements' => ['room' => $name, 'sanitation_requirements' => $text],
+            'care_plans', 'behavior_strategies', 'support_plans' => ['title' => $name, 'instructions' => $text, 'communication_methods' => $optional, 'sensory_triggers' => $optional, 'calming_protocols' => $optional],
+            'behavior_logs' => ['title' => $name, 'description' => $text, 'antecedent' => $optional, 'behavior' => $optional, 'consequence' => $optional],
+            'accommodations' => ['title' => $name, 'accessibility_requirements' => $text, 'equipment' => $optional, 'cabin' => $optional, 'mobility_requirements' => $optional, 'sensory_requirements' => $optional],
+            'adaptive_equipment' => ['title' => $name, 'description' => $text, 'checkout_status' => 'nullable|in:available,checked_out,maintenance'],
+            'participation' => ['title' => $name, 'description' => $text, 'participant' => $optional, 'attendance' => 'nullable|in:present,absent', 'low_stimulation' => 'nullable|boolean'],
+            'incident_flags' => ['title' => $name, 'description' => $text, 'destination' => 'nullable|in:nursing,behavioral,maintenance', 'location' => $optional],
+            'room_requirements' => ['room' => $name, 'sanitation_requirements' => $text, 'lighting' => $optional, 'hypoallergenic_linens' => 'nullable|boolean'],
+            'sanitation_rosters' => ['title' => $name, 'description' => $text, 'status' => 'nullable|in:pending,disinfected,ready'],
+            'safety_inspections' => ['title' => $name, 'description' => $text, 'result' => 'nullable|in:passed,failed'],
             'work_orders', 'accessibility_work_orders' => ['title' => $name, 'location' => $name, 'description' => $text, 'status' => 'required|in:open,assigned,in_progress,completed'],
             'activities', 'events', 'activity_schedules' => ['title' => $name, 'scheduled_at' => 'required|date', 'location' => $name, 'description' => $text],
-            'menus' => ['title' => $name, 'service_date' => $date, 'ingredients' => $text, 'allergens' => $text],
+            'menus' => ['name' => $name, 'date' => $date, 'period' => 'required|in:breakfast,lunch,dinner', 'ingredients' => $text, 'allergens' => $optional],
             'meal_plans' => ['name' => $name, 'date' => $date, 'period' => 'required|in:breakfast,lunch,dinner', 'allergens' => $optional],
             'special_meals' => ['name' => $name, 'date' => $date, 'period' => 'required|in:breakfast,lunch,dinner', 'allergens' => $optional, 'incompatible' => 'required|boolean'],
             'billing', 'payments', 'refunds', 'reimbursements', 'payroll', 'grant_funds', 'budgets', 'revenue', 'financial_approvals' => ['title' => $name, 'amount' => $amount, 'description' => $text],
             'grant_applications' => ['title' => $name, 'amount' => $amount, 'purpose' => $text],
             'booking_balances' => ['title' => $name, 'amount' => $amount],
-            'activity_commitments' => ['title' => $name, 'activity_id' => 'required|integer|min:1', 'notes' => $optional],
+            'activity_commitments' => ['name' => $name, 'target_module' => 'required|in:activities,events', 'target_id' => 'required|integer|min:1', 'status' => 'required|in:enrolled,cancelled'],
             'time_cards' => ['title' => $name, 'hours' => 'required|numeric|min:0|max:168', 'week_start' => $date],
             default => ['title' => $name, 'description' => $text],
         };

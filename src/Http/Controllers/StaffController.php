@@ -27,6 +27,7 @@ class StaffController extends Controller
     public function index(): View
     {
         abort_unless($this->allows('users.read_all') || $this->allows('executive_users.manage_all'), 403);
+        $this->requireSupportedSchema();
         $query = SecureAccess::newUserQuery();
         $this->scopeVisibleUsers($query);
         $model = $query->getModel();
@@ -53,7 +54,8 @@ class StaffController extends Controller
         return view('secure-access::camp.staff', [
             'users' => $users,
             'groups' => $groups->filter(fn ($group) => $this->canAssignGroup($group)),
-            'canCreate' => $this->allows('users.create_all') || $this->allows('executive_users.manage_all'),
+            'canCreate' => ($this->allows('users.create_all') && $this->allows('users.assign_all') && $this->allows('credentials.manage_all'))
+                || $this->allows('executive_users.manage_all'),
             'canUpdate' => $this->allows('users.update_all') || $this->allows('executive_users.manage_all'),
             'canDelete' => $this->allows('users.delete_all') || $this->allows('executive_users.manage_all'),
             'canAssign' => $this->allows('users.assign_all') || $this->allows('executive_users.manage_all'),
@@ -70,6 +72,7 @@ class StaffController extends Controller
     public function store(Request $request): RedirectResponse
     {
         abort_unless($this->allows('users.create_all') || $this->allows('executive_users.manage_all'), 403);
+        $this->requireSupportedSchema();
         $this->normalizeGroups($request);
         $validated = $request->validate($this->rules());
 
@@ -85,7 +88,9 @@ class StaffController extends Controller
             $this->fillUser($user, $validated);
             $user->save();
             $this->syncGroups($user, $groupIds);
-            Audit::record('staff.create', 'staff', (string) $user->getKey(), ['group_ids' => $groupIds]);
+            Audit::record('staff.create', 'staff', $this->auditSubjectId($user), [
+                'user_id' => (string) $user->getKey(), 'group_ids' => $groupIds,
+            ]);
         });
 
         return $this->redirectToIndex();
@@ -94,6 +99,7 @@ class StaffController extends Controller
     public function update(Request $request, string $user): RedirectResponse
     {
         abort_unless($this->allows('users.update_all') || $this->allows('executive_users.manage_all'), 403);
+        $this->requireSupportedSchema();
         DB::transaction(function () use ($request, $user) {
             $this->lockGroups();
             $target = SecureAccess::newUserQuery()->whereKey($user)->lockForUpdate()->firstOrFail();
@@ -115,17 +121,19 @@ class StaffController extends Controller
             $this->fillUser($target, $validated);
             $target->save();
             $currentGroupIds = $this->groupIds($target);
-            Audit::record('staff.update', 'staff', (string) $target->getKey(), [
-                'group_ids' => $currentGroupIds, 'password_reset' => $reset,
+            Audit::record('staff.update', 'staff', $this->auditSubjectId($target), [
+                'user_id' => (string) $target->getKey(), 'group_ids' => $currentGroupIds, 'password_reset' => $reset,
             ]);
             if (collect($previousGroupIds)->map(fn ($id) => (string) $id)->sort()->values()->all()
                 !== collect($currentGroupIds)->map(fn ($id) => (string) $id)->sort()->values()->all()) {
-                Audit::record('staff.roles_updated', 'staff', (string) $target->getKey(), [
-                    'previous_group_ids' => $previousGroupIds, 'group_ids' => $currentGroupIds,
+                Audit::record('staff.roles_updated', 'staff', $this->auditSubjectId($target), [
+                    'user_id' => (string) $target->getKey(), 'previous_group_ids' => $previousGroupIds, 'group_ids' => $currentGroupIds,
                 ]);
             }
             if ($reset) {
-                Audit::record('credentials.reset', 'staff', (string) $target->getKey());
+                Audit::record('credentials.reset', 'staff', $this->auditSubjectId($target), [
+                    'user_id' => (string) $target->getKey(),
+                ]);
             }
         });
 
@@ -145,9 +153,9 @@ class StaffController extends Controller
             $this->protectLastExecutive($target);
             DB::table('secure_access_memberships')->where('member_type', $target->getMorphClass())
                 ->where('member_id', (string) $target->getKey())->delete();
-            $id = (string) $target->getKey();
+            $id = $this->auditSubjectId($target);
             $target->delete();
-            Audit::record('staff.delete', 'staff', $id);
+            Audit::record('staff.delete', 'staff', $id, ['user_id' => (string) $target->getKey()]);
         });
 
         return $this->redirectToIndex();
@@ -182,6 +190,23 @@ class StaffController extends Controller
             'group_ids' => [$user ? 'sometimes' : 'present', 'array'],
             'group_ids.*' => ['required', 'integer', 'distinct', Rule::exists('secure_access_groups', 'id')],
         ];
+    }
+
+    protected function requireSupportedSchema(): void
+    {
+        $model = SecureAccess::newUserQuery()->getModel();
+        $username = config('secure-access.username_column', 'username');
+        $email = config('secure-access.email_column', 'email');
+        $columns = [$model->getKeyName(), 'name', $username, $email, $model->getAuthPasswordName()];
+        if ($token = $model->getRememberTokenName()) {
+            $columns[] = $token;
+        }
+        if (! is_string($username) || $username === '' || ! is_string($email) || $email === ''
+            || ! $model->getConnection()->getSchemaBuilder()->hasColumns($model->getTable(), $columns)) {
+            abort(response()->json([
+                'message' => __('Staff management requires configured username and email columns and a supported account schema.'),
+            ], 422));
+        }
     }
 
     protected function fillUser(Model $user, array $validated): void
@@ -299,6 +324,13 @@ class StaffController extends Controller
         if ($request->boolean('sync_groups') && ! $request->has('group_ids')) {
             $request->merge(['group_ids' => []]);
         }
+    }
+
+    protected function auditSubjectId(Model $user): ?int
+    {
+        $id = filter_var($user->getKey(), FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
+
+        return $id === false ? null : $id;
     }
 
     protected function redirectToIndex(): RedirectResponse

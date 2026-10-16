@@ -292,6 +292,26 @@ class StaffManagementTest extends TestCase
         $this->assertDatabaseMissing('secure_access_memberships', ['member_type' => $target->getMorphClass(), 'member_id' => $target->id]);
     }
 
+    public function test_optional_or_missing_identifier_columns_are_rejected_without_database_errors(): void
+    {
+        $this->loginStaff($this->staff('admin', 'administrative-director'));
+        $target = $this->staff('target');
+        foreach ([
+            ['secure-access.username_column' => null, 'secure-access.email_column' => 'email'],
+            ['secure-access.username_column' => 'username', 'secure-access.email_column' => null],
+            ['secure-access.username_column' => 'missing_username', 'secure-access.email_column' => 'email'],
+            ['secure-access.username_column' => 'username', 'secure-access.email_column' => 'missing_email'],
+        ] as $configuration) {
+            config($configuration);
+            $this->get(route('secure-access.staff.index'))->assertStatus(422)
+                ->assertSee('Staff management requires configured username and email columns');
+            $this->post(route('secure-access.staff.store'), $this->payload())->assertStatus(422);
+            $this->put(route('secure-access.staff.update', $target->id), $this->details($target))->assertStatus(422);
+        }
+        $this->assertSame('Target', $target->fresh()->name);
+        $this->assertDatabaseMissing('users', ['username' => 'newstaff']);
+    }
+
     public function test_account_mutations_roll_back_when_required_audit_cannot_be_written(): void
     {
         $this->loginStaff($this->staff('admin', 'administrative-director'));

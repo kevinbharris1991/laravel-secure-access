@@ -92,7 +92,7 @@ class GuestPortalTest extends TestCase
         $spoof->forceFill(['owner_type' => 'other-model'])->save();
 
         $this->get(route('secure-access.guest.index'))->assertOk()
-            ->assertSee('Public lunch')->assertSee('Compatible option')
+            ->assertSee('Public lunch')->assertDontSee('Compatible option')
             ->assertDontSee('<s>', false)->assertDontSee('Private other meal')->assertDontSee('Other identity type');
     }
 
@@ -171,6 +171,33 @@ class GuestPortalTest extends TestCase
         $this->post($url)->assertRedirect(route('secure-access.guest.index'));
         $this->post($url)->assertRedirect(route('secure-access.guest.index'));
         $this->assertSame(1, CampRecord::where('module', 'activity_commitments')->count());
+    }
+
+    public function test_generic_commitment_writes_cannot_fabricate_enrollment(): void
+    {
+        $this->loginGuest();
+        $hidden = $this->record('events', ['title' => 'Hidden event']);
+        $payload = [
+            'title' => 'Forged enrollment', 'name' => 'Forged enrollment',
+            'target_module' => 'events', 'target_id' => $hidden->id,
+            'source_module' => 'events', 'activity_id' => $hidden->id, 'status' => 'enrolled',
+        ];
+        $this->post(route('secure-access.camp.store', ['module' => 'activity_commitments']), $payload)
+            ->assertForbidden();
+        $this->assertSame(0, CampRecord::where('module', 'activity_commitments')->count());
+
+        $public = $this->record('activities', ['title' => 'Public activity'], public: true);
+        $this->post(route('secure-access.guest.commit', ['module' => 'activities', 'record' => $public->id]))
+            ->assertRedirect(route('secure-access.guest.index'));
+        $commitment = CampRecord::where('module', 'activity_commitments')->sole();
+        $original = $commitment->data;
+        $this->put(route('secure-access.camp.update', [
+            'module' => 'activity_commitments', 'record' => $commitment->id,
+        ]), $payload)->assertForbidden();
+        $this->assertSame($original, $commitment->fresh()->data);
+        $this->get(route('secure-access.camp.show', [
+            'module' => 'activity_commitments', 'record' => $commitment->id,
+        ]))->assertOk()->assertSee('Public activity')->assertSee('enrolled');
     }
 
     public function test_guest_cannot_modify_substitutions_through_generic_workflow(): void

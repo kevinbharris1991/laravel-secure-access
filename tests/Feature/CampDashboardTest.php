@@ -43,6 +43,16 @@ class CampDashboardTest extends TestCase
         $this->get(route('secure-access.staff.index'))->assertRedirect(route('secure-access.login'));
     }
 
+    public function test_authorized_module_forms_render_validation_feedback(): void
+    {
+        $user = $this->createUser();
+        $user->accessGroups()->attach(AccessGroup::where('key', 'medical-nursing')->sole());
+        $this->actingAs($user)->withSession([SecureAccess::MFA_VERIFIED_SESSION_KEY => (string) $user->id]);
+        $this->get(route('secure-access.camp.create', 'medications'))->assertOk()->assertSee('name="name"', false);
+        $this->post(route('secure-access.camp.store', 'medications'), [])->assertSessionHasErrors('name');
+        $this->get(route('secure-access.camp.create', 'medications'))->assertOk()->assertSee('name');
+    }
+
     public function test_access_settings_views_and_changes_are_audited(): void
     {
         $user = $this->createUser();

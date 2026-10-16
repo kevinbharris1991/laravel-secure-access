@@ -524,6 +524,12 @@ morph type as well as identifier; client-supplied ownership cannot transfer a re
 Counselor access requires a trusted camper assignment, never a supplied list of IDs.
 Use intake registration IDs as camper identifiers when linking records.
 
+Administrators assign counselors using a roster's **Assign** action with a counselor
+account ID and an intake registration ID. Nursing staff can publish care plans,
+allergy alerts, safety summaries, and bounded behavioral-health context linked to
+that camper; behavioral staff publish the separate counselor strategy records.
+Counselors cannot create assignments or alter those plans.
+
 Clinical source records, behavior context, safety-only alerts, dietary restrictions,
 and administrative intake are separate modules. Publish only the permitted context
 into the narrow modules; never copy full clinical histories into a safety alert,
@@ -547,6 +553,16 @@ breakfast/lunch/dinner period: the standard meal is struck through and the appro
 alternative is displayed. Other guests' special meals are never loaded.
 Activity commitments use server-derived ownership and repeat enrollment is
 idempotent. The guest page lists only that guest's commitments.
+
+Program staff publish guest-facing **Activities**/**Events** using the publication
+selector; drafts are denied even by direct URL. Catering publishes standard
+**Meal plans** separately from internal menus. Guest dietary disclosures project
+only names, food allergens, and dietary instructions into the catering dashboard
+(not environmental/drug allergies or clinical notes). Published meals generate
+guest-owned pending special-meal review rows for disclosed diets. Catering updates
+those rows with the alternative and incompatibility decision; guests cannot create
+or change substitutions. Finance creates guest-owned balance records using the
+guest account ID; guests can request payment of only those balances.
 
 Payment requests are workflow records, **not a payment gateway**. Integrate a trusted
 payment processor and verified callbacks before accepting money; a guest request

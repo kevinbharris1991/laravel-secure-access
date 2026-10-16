@@ -41,10 +41,12 @@
                     @if ($commitments->contains(fn ($commitment) => ($commitment->data['target_module'] ?? null) === $module && (string) ($commitment->data['target_id'] ?? '') === (string) $opportunity->id))
                         <p>{{ __('You are enrolled') }}</p>
                     @elseif ($canCommit[$module])
-                        <form method="POST" action="{{ route('secure-access.guest.commit', ['module' => $module, 'record' => $opportunity->id]) }}">
-                            @csrf
-                            <button class="sa-button" type="submit">{{ __('Enroll') }}</button>
-                        </form>
+                        @can('secure-access', [$module.'.commit_public', $opportunity])
+                            <form method="POST" action="{{ route('secure-access.guest.commit', ['module' => $module, 'record' => $opportunity->id]) }}">
+                                @csrf
+                                <button class="sa-btn" type="submit">{{ __('Enroll') }}</button>
+                            </form>
+                        @endcan
                     @endif
                 </article>
             @empty

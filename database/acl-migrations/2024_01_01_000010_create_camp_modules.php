@@ -14,6 +14,8 @@ return new class extends Migration
             $table->string('owner_type')->nullable();
             $table->string('owner_id')->nullable();
             $table->unsignedBigInteger('camper_id')->nullable()->index();
+            $table->unsignedBigInteger('source_id')->nullable();
+            $table->unique(['module', 'source_id'], 'camp_projection_source');
             $table->boolean('is_public')->default(false);
             $table->longText('data');
             $table->timestamps();
@@ -33,7 +35,7 @@ return new class extends Migration
             $table->string('actor_id');
             $table->string('action', 40);
             $table->string('module', 80)->index();
-            $table->unsignedBigInteger('record_id')->nullable();
+            $table->string('record_id')->nullable();
             $table->timestamp('created_at');
         });
     }

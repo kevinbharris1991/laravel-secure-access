@@ -85,6 +85,7 @@ class GuestPortalController extends CampController
                     'status' => 'enrolled',
                 ],
             ])->save();
+            $this->publishRelated($commitment);
             $this->audit('activity_commitments', 'create', $commitment->id);
             $this->audit($module, 'commit', $opportunity->id);
         });

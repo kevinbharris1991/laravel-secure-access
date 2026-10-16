@@ -18,7 +18,8 @@ class GuestMeals
             ->sortBy(fn ($record) => ($record->data['date'] ?? '').$periods[$record->data['period']])
             ->map(function ($record) use ($specials) {
                 $data = $record->data;
-                $matches = $specials->get(self::slot($data), collect());
+                $matches = $specials->get(self::slot($data), collect())
+                    ->filter(fn ($special) => in_array($special->data['incompatible'] ?? false, [true, 1, '1'], true));
 
                 return [
                     'date' => $data['date'] ?? '',
@@ -27,7 +28,7 @@ class GuestMeals
                     'allergens' => is_array($data['allergens'] ?? null)
                         ? implode(', ', $data['allergens'])
                         : ($data['allergens'] ?? ''),
-                    'incompatible' => $matches->contains(fn ($special) => in_array($special->data['incompatible'] ?? false, [true, 1, '1'], true)),
+                    'incompatible' => $matches->isNotEmpty(),
                     'substitutions' => $matches->map(fn ($special) => $special->data['name'] ?? '')->filter()->values(),
                 ];
             })->values();
