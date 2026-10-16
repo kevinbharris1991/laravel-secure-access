@@ -36,7 +36,7 @@ class RegistrationTest extends TestCase
 
     protected function activationUrl(): string
     {
-        return (new ActivateAccount(PendingRegistration::latest()->firstOrFail()))->activationUrl();
+        return Notification::sentOnDemand(ActivateAccount::class)->last()->activationUrl();
     }
 
     protected function activate(array $attributes = [], ?string $url = null)
@@ -203,7 +203,7 @@ class RegistrationTest extends TestCase
 
     public function test_birth_date_and_gender_are_validated(): void
     {
-        foreach (['not-a-date', '2000-02-30', today()->toDateString(), tomorrow()->toDateString()] as $date) {
+        foreach (['not-a-date', '2000-02-30', today()->toDateString(), today()->addDay()->toDateString()] as $date) {
             $this->registration(['date_of_birth' => $date])->assertSessionHasErrors('date_of_birth');
         }
 
@@ -363,6 +363,33 @@ class RegistrationTest extends TestCase
             ->assertNotFound();
         $this->assertTrue(Hash::check('Secure-password123!', User::sole()->password));
         $this->assertSame(1, User::count());
+    }
+
+    public function test_an_expired_registration_is_rejected_even_with_a_fresh_signature(): void
+    {
+        $this->registration();
+        PendingRegistration::sole()->update(['expires_at' => now()->subMinute()]);
+        $url = \Illuminate\Support\Facades\URL::temporarySignedRoute('secure-access.activate', now()->addHour(), [
+            'registration' => PendingRegistration::sole()->id,
+        ]);
+
+        $this->get($url)->assertForbidden();
+        $this->activate([], $url)->assertForbidden();
+        $this->assertSame(0, User::count());
+    }
+
+    public function test_authenticated_users_cannot_activate_another_account(): void
+    {
+        $this->registration();
+        $url = $this->activationUrl();
+        $user = $this->createUser();
+        $this->actingAs($user)->withSession([SecureAccess::MFA_VERIFIED_SESSION_KEY => (string) $user->id]);
+
+        $this->get($url)->assertRedirect('/dashboard');
+        $this->activate([], $url)->assertRedirect('/dashboard');
+        $this->assertSame(1, User::count());
+        $this->assertSame(1, PendingRegistration::count());
+        $this->assertAuthenticatedAs($user);
     }
 
     public function test_activation_rechecks_email_ownership_before_creating_an_account(): void

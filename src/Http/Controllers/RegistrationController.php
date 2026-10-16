@@ -134,9 +134,11 @@ class RegistrationController extends Controller
                 $attributes = [];
 
                 foreach ($fields as $field => $column) {
-                    $attributes[$column] = $field === 'username'
-                        ? $validated['username']
-                        : $registration->getAttribute($field);
+                    $attributes[$column] = match ($field) {
+                        'username' => $validated['username'],
+                        'date_of_birth' => $registration->date_of_birth->toDateString(),
+                        default => $registration->getAttribute($field),
+                    };
                 }
 
                 $attributes[$user->getAuthPasswordName()] = Hash::make($validated['password']);
