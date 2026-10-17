@@ -133,13 +133,16 @@ class TeamController extends Controller
     public function decline(TeamInvitation $invitation): RedirectResponse
     {
         $user = $this->authorizeTeamAccess();
-        abort_unless(
-            $invitation->status === TeamInvitation::STATUS_PENDING
-                && $invitation->invitee_id === (string) $user->getKey(),
-            404
-        );
+        DB::transaction(function () use ($invitation, $user) {
+            $invitation = TeamInvitation::query()->whereKey($invitation->getKey())->lockForUpdate()->firstOrFail();
+            abort_unless(
+                $invitation->status === TeamInvitation::STATUS_PENDING
+                    && $invitation->invitee_id === (string) $user->getKey(),
+                404
+            );
 
-        $invitation->forceFill(['status' => TeamInvitation::STATUS_DECLINED])->save();
+            $invitation->forceFill(['status' => TeamInvitation::STATUS_DECLINED])->save();
+        });
 
         return redirect()->route('secure-access.team.index')->with('status', __('Invitation declined.'));
     }
