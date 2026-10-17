@@ -34,6 +34,9 @@ The migrations add `username`, `failed_login_attempts`, `locked_at`, `date_of_bi
 and registration profile columns are skipped if they already exist) and create the `user_emails`,
 `mfa_methods`, `pending_registrations` and `pending_registration_roles` tables.
 
+When upgrading an existing installation, run `php artisan migrate` before using
+post-activation role selection; it requires the new `pending_registration_roles` table.
+
 Optionally add the trait to your `User` model for convenient relationships:
 
 ```php
@@ -126,7 +129,7 @@ login page, e.g. in `bootstrap/app.php`:
    defaults for any other required columns.
 4. **About you.** Activation **does not authenticate the user or mark MFA verified**. It starts the same expiring
    pending session used after a successful password check and redirects to `secure-access.register.role`.
-   “Which best describes you?” offers Self-advocate, Family member / Caregiver, Professional, Employee,
+   “Which best describes you?” offers Self-advocate, Family member / Caregiver, Professional,
    and Other / None of the above. This required selection is saved in `registration_role` only when that
    optional column exists on the configured user table; it never assigns ACL groups or permissions.
    A durable `pending_registration_roles` record prevents skipping this step, including after signing in

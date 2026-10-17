@@ -181,9 +181,9 @@ class InvitationTest extends TestCase
         $this->assertGuest();
         $this->assertFalse(SecureAccess::mfaVerified($user));
         $this->get(route('secure-access.setup'))->assertRedirect(route('secure-access.register.role'));
-        $this->post(route('secure-access.register.role.store'), ['registration_role' => 'employee'])
+        $this->post(route('secure-access.register.role.store'), ['registration_role' => 'professional'])
             ->assertRedirect(route('secure-access.setup'));
-        $this->assertSame('employee', $user->fresh()->registration_role);
+        $this->assertSame('professional', $user->fresh()->registration_role);
         $this->assertSame([$group->key], $user->accessGroups()->pluck('key')->all());
         $this->assertGuest();
         $this->get($url)->assertRedirect(route('secure-access.register'));

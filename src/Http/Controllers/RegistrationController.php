@@ -483,7 +483,6 @@ class RegistrationController extends Controller
             'self_advocate' => __('Self-advocate: I am an individual with high support needs.'),
             'family_caregiver' => __('Family member / Caregiver: I support a relative with high support needs.'),
             'professional' => __('Professional: I work in a field or career supporting individuals with high support needs.'),
-            'employee' => __("Employee: I work for Camp Cody's."),
             'other' => __('Other / None of the above'),
         ];
     }

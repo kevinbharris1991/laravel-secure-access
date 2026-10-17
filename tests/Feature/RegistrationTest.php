@@ -196,7 +196,8 @@ class RegistrationTest extends TestCase
             ->assertSee('Self-advocate: I am an individual with high support needs.')
             ->assertSee('Family member / Caregiver: I support a relative with high support needs.')
             ->assertSee('Professional: I work in a field or career supporting individuals with high support needs.')
-            ->assertSee("Employee: I work for Camp Cody's.")
+            ->assertDontSee('value="employee"', false)
+            ->assertDontSee("Employee: I work for Camp Cody's.")
             ->assertSee('Other / None of the above');
         $this->post(route('secure-access.register.role.store'), ['registration_role' => 'self_advocate'])
             ->assertRedirect(route('secure-access.setup'));
@@ -236,7 +237,7 @@ class RegistrationTest extends TestCase
         $user = User::sole();
         $this->assertNull($user->registration_role);
 
-        foreach ([[], ['registration_role' => ''], ['registration_role' => 'executive-director'], ['registration_role' => ['other']]] as $input) {
+        foreach ([[], ['registration_role' => ''], ['registration_role' => 'employee'], ['registration_role' => 'executive-director'], ['registration_role' => ['other']]] as $input) {
             $this->from(route('secure-access.register.role'))
                 ->post(route('secure-access.register.role.store'), $input)
                 ->assertRedirect(route('secure-access.register.role'))
@@ -257,7 +258,7 @@ class RegistrationTest extends TestCase
 
     public function test_every_role_choice_is_accepted_without_changing_access_groups(): void
     {
-        foreach (['self_advocate', 'family_caregiver', 'professional', 'employee', 'other'] as $role) {
+        foreach (['self_advocate', 'family_caregiver', 'professional', 'other'] as $role) {
             $email = $role.'@example.com';
             $this->registration(['email' => $email])->assertSessionHasNoErrors();
             $this->activate($this->activationUrl($email), ['username' => $role]);
@@ -515,9 +516,9 @@ class RegistrationTest extends TestCase
         $this->assertSame('newuser', $user->handle);
         $this->assertSame('new@example.com', $user->email_address);
         $this->assertTrue(Hash::check('Secure-password123!', $user->password));
-        $this->post(route('secure-access.register.role.store'), ['registration_role' => 'employee'])
+        $this->post(route('secure-access.register.role.store'), ['registration_role' => 'professional'])
             ->assertRedirect(route('secure-access.setup'));
-        $this->assertSame('employee', $user->fresh()->registration_role);
+        $this->assertSame('professional', $user->fresh()->registration_role);
 
         $this->registration(['email' => 'NEW@example.com'])->assertSessionHasErrors('email');
         $this->passwordStep('NEWUSER', 'Secure-password123!')->assertRedirect(route('secure-access.challenge'));
