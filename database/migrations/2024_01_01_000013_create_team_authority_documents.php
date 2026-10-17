@@ -10,12 +10,14 @@ return new class extends Migration
     {
         Schema::create('secure_access_team_authority_documents', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('team_member_id')->constrained('secure_access_team_members')->cascadeOnDelete();
+            $table->foreignId('team_member_id')
+                ->constrained('secure_access_team_members', 'id', 'satad_member_fk')
+                ->cascadeOnDelete();
             $table->string('type');
             $table->string('path');
             $table->string('file_name');
             $table->timestamps();
-            $table->index(['team_member_id', 'type']);
+            $table->index(['team_member_id', 'type'], 'satad_member_type_index');
         });
     }
 
