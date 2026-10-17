@@ -47,6 +47,7 @@ class RegistrationController extends Controller
 
         return view('secure-access::auth.register', [
             'genders' => $this->genders(),
+            'registrationRoles' => $this->registrationRoles(),
             'minimumAge' => $this->minimumAge(),
             'latestBirthDate' => $this->latestBirthDate()->toDateString(),
             'termsUrl' => config('secure-access.registration.terms_url'),
@@ -90,6 +91,7 @@ class RegistrationController extends Controller
                 }
             }],
             'gender' => ['required', 'string', Rule::in(array_map('strval', array_keys($this->genders())))],
+            'registration_role' => ['required', 'string', Rule::in(array_keys($this->registrationRoles()))],
             'terms' => ['accepted'],
             'privacy' => ['accepted'],
         ], [
@@ -119,6 +121,7 @@ class RegistrationController extends Controller
             ], fn ($part) => $part !== null && $part !== '')),
             'date_of_birth' => $validated['date_of_birth'],
             'gender' => $validated['gender'],
+            'registration_role' => $validated['registration_role'],
             'token' => PendingRegistration::hashToken($token),
             'terms_accepted_at' => now(),
             'privacy_policy_accepted_at' => now(),
@@ -359,6 +362,7 @@ class RegistrationController extends Controller
             'name' => $pending->name,
             'date_of_birth' => $pending->date_of_birth?->toDateString(),
             'gender' => $pending->gender,
+            'registration_role' => $pending->registration_role,
             'profile_photo_path' => $photo,
             'terms_accepted_at' => $pending->terms_accepted_at,
             'privacy_policy_accepted_at' => $pending->privacy_policy_accepted_at,
@@ -417,6 +421,17 @@ class RegistrationController extends Controller
     protected function genders(): array
     {
         return (array) config('secure-access.registration.genders', []);
+    }
+
+    protected function registrationRoles(): array
+    {
+        return [
+            'self_advocate' => __('Self-advocate: I am an individual with high support needs.'),
+            'family_caregiver' => __('Family member / Caregiver: I support a relative with high support needs.'),
+            'professional' => __('Professional: I work in a field or career supporting individuals with high support needs.'),
+            'employee' => __("Employee: I work for Camp Cody's."),
+            'other' => __('Other / None of the above'),
+        ];
     }
 
     protected function minimumAge(): int

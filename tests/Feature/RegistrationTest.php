@@ -35,6 +35,7 @@ class RegistrationTest extends TestCase
             'date_of_birth' => '2000-01-31',
             'email' => 'new@example.com',
             'gender' => 'non_binary',
+            'registration_role' => 'self_advocate',
             'terms' => '1',
             'privacy' => '1',
         ]);
@@ -78,6 +79,13 @@ class RegistrationTest extends TestCase
             ->assertSee('name="email"', false)
             ->assertSee('name="gender"', false)
             ->assertSee('value="non_binary"', false)
+            ->assertSee('name="registration_role"', false)
+            ->assertSee('value="self_advocate"', false)
+            ->assertSee('Self-advocate: I am an individual with high support needs.')
+            ->assertSee('Family member / Caregiver: I support a relative with high support needs.')
+            ->assertSee('Professional: I work in a field or career supporting individuals with high support needs.')
+            ->assertSee("Employee: I work for Camp Cody's.")
+            ->assertSee('Other / None of the above')
             ->assertSee('name="terms"', false)
             ->assertSee('name="privacy"', false)
             ->assertSee('href="/terms"', false)
@@ -143,6 +151,7 @@ class RegistrationTest extends TestCase
         $this->assertSame('New Q User', $pending->name);
         $this->assertSame('2000-01-31', $pending->date_of_birth->toDateString());
         $this->assertSame('non_binary', $pending->gender);
+        $this->assertSame('self_advocate', $pending->registration_role);
         $this->assertNotNull($pending->terms_accepted_at);
         $this->assertNotNull($pending->privacy_policy_accepted_at);
         $this->assertEquals(now()->addMinutes(5), $pending->expires_at);
@@ -168,6 +177,7 @@ class RegistrationTest extends TestCase
         $this->assertSame('new@example.com', $user->email);
         $this->assertSame('2000-01-31', substr($user->date_of_birth, 0, 10));
         $this->assertSame('non_binary', $user->gender);
+        $this->assertSame('self_advocate', $user->registration_role);
         $this->assertNotNull($user->terms_accepted_at);
         $this->assertNotNull($user->privacy_policy_accepted_at);
         $this->assertNotNull($user->email_verified_at);
@@ -256,7 +266,7 @@ class RegistrationTest extends TestCase
     public function test_required_fields_and_formats_are_validated(): void
     {
         $this->post(route('secure-access.register.store'), [])
-            ->assertSessionHasErrors(['first_name', 'last_name', 'date_of_birth', 'email', 'gender', 'terms', 'privacy']);
+            ->assertSessionHasErrors(['first_name', 'last_name', 'date_of_birth', 'email', 'gender', 'registration_role', 'terms', 'privacy']);
         $this->registration(['middle_initial' => 'AB'])->assertSessionHasErrors('middle_initial');
         $this->registration(['first_name' => str_repeat('A', 255), 'last_name' => str_repeat('B', 255)])
             ->assertSessionHasErrors('last_name');

@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $email
  * @property \Illuminate\Support\Carbon|null $date_of_birth
  * @property string|null $gender
+ * @property string|null $registration_role
  * @property string $token SHA-256 hash of the activation token.
  * @property \Illuminate\Support\Carbon|null $terms_accepted_at
  * @property \Illuminate\Support\Carbon|null $privacy_policy_accepted_at
@@ -30,6 +31,7 @@ class PendingRegistration extends Model
         'email',
         'date_of_birth',
         'gender',
+        'registration_role',
         'token',
         'terms_accepted_at',
         'privacy_policy_accepted_at',
