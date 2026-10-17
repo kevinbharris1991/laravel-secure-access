@@ -44,6 +44,30 @@
                     @method('DELETE')
                     <button class="sa-btn sa-mt-4" type="submit">{{ __('Remove') }}</button>
                 </form>
+                <h3 class="sa-title sa-mt-4">{{ __('Legal authority documents') }}</h3>
+                @forelse ($member['authority_documents'] as $document)
+                    <p class="sa-text">
+                        {{ __(ucwords(str_replace('_', ' ', $document['type']))) }}:
+                        <a class="sa-link" href="{{ route('secure-access.team.authority-documents.download', [$member['id'], $document['id']]) }}">{{ $document['name'] }}</a>
+                    </p>
+                @empty
+                    <p class="sa-text">{{ __('No authority documents have been uploaded.') }}</p>
+                @endforelse
+                @if ($member['can_attach_authority'])
+                    <form method="POST" enctype="multipart/form-data" action="{{ route('secure-access.team.authority-documents.store', $member['id']) }}">
+                        @csrf
+                        <label class="sa-label sa-mt-4" for="authority-type-{{ $member['id'] }}">{{ __('Authority type') }}</label>
+                        <select class="sa-input" id="authority-type-{{ $member['id'] }}" name="type" required>
+                            <option value="">{{ __('Select…') }}</option>
+                            @foreach ($authorityDocumentTypes as $type)
+                                <option value="{{ $type }}" @selected(old('type') === $type)>{{ __(ucwords(str_replace('_', ' ', $type))) }}</option>
+                            @endforeach
+                        </select>
+                        <label class="sa-label sa-mt-4" for="authority-document-{{ $member['id'] }}">{{ __('Upload document (PDF, JPG, or PNG; max 10 MB)') }}</label>
+                        <input class="sa-input" id="authority-document-{{ $member['id'] }}" type="file" name="document" accept=".pdf,.jpg,.jpeg,.png" required>
+                        <button class="sa-btn sa-mt-4" type="submit">{{ __('Attach authority document') }}</button>
+                    </form>
+                @endif
             </div>
         @empty
             <p class="sa-text">{{ __('You have no team members yet.') }}</p>
