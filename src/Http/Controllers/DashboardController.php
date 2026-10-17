@@ -36,6 +36,7 @@ class DashboardController extends Controller
         return view('secure-access::dashboard.index', [
             'groups' => $groups,
             'staffPermission' => $staffPermission,
+            'canManageTeam' => in_array($user?->registration_role, ['self_advocate', 'family_caregiver', 'professional'], true),
             'campItems' => config('secure-access-acl.enabled') ? Modules::visible($user) : [],
             'items' => $dashboard->resolveFor($user, [
                 'groups' => new DashboardItem('groups.manage_all', fn () => [

@@ -375,12 +375,12 @@ class RegistrationController extends Controller
             'registration_role' => ['required', 'string', Rule::in(array_keys($this->registrationRoles()))],
         ]);
 
-        DB::transaction(function () use ($user, $validated) {
+        $roleWasAssigned = DB::transaction(function () use ($user, $validated) {
             $requirement = DB::table('pending_registration_roles')
                 ->where('user_id', (string) $user->getKey())->lockForUpdate()->first();
 
             if (! $requirement) {
-                return;
+                return false;
             }
 
             $columns = $user->getConnection()->getSchemaBuilder()->getColumnListing($user->getTable());
@@ -389,7 +389,14 @@ class RegistrationController extends Controller
             }
 
             DB::table('pending_registration_roles')->where('user_id', (string) $user->getKey())->delete();
+
+            return true;
         });
+
+        if ($roleWasAssigned) {
+            app(\SecureAccess\Services\TeamInvitationService::class)
+                ->resolvePendingInvitations($user, $validated['registration_role']);
+        }
 
         return redirect()->route('secure-access.setup');
     }
