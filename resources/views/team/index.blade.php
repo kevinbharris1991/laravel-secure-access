@@ -55,12 +55,12 @@
             <h2 class="sa-title">{{ __('Invitations for you') }}</h2>
             @foreach ($incoming as $invitation)
                 <div class="sa-option">
-                    <p class="sa-text">{{ __('A :role invited you to join their team.', ['role' => $invitation->inviter_role === 'professional' ? __('professional') : __('family member / caregiver')]) }}</p>
-                    <form method="POST" action="{{ route('secure-access.team.invitations.accept', $invitation) }}">
+                    <p class="sa-text">{{ __(':name invited you to join their team.', ['name' => $invitation['inviter_name']]) }}</p>
+                    <form method="POST" action="{{ route('secure-access.team.invitations.accept', $invitation['id']) }}">
                         @csrf
                         <button class="sa-btn" type="submit">{{ __('Accept') }}</button>
                     </form>
-                    <form method="POST" action="{{ route('secure-access.team.invitations.decline', $invitation) }}">
+                    <form method="POST" action="{{ route('secure-access.team.invitations.decline', $invitation['id']) }}">
                         @csrf
                         @method('DELETE')
                         <button class="sa-btn sa-mt-4" type="submit">{{ __('Decline') }}</button>

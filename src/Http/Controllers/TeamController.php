@@ -50,7 +50,11 @@ class TeamController extends Controller
                 ->where('invitee_id', (string) $user->getKey())
                 ->where('status', TeamInvitation::STATUS_PENDING)
                 ->latest()
-                ->get(),
+                ->get()
+                ->map(fn (TeamInvitation $invitation) => [
+                    'id' => $invitation->getKey(),
+                    'inviter_name' => $invitations->user($invitation->inviter_id)?->getAttribute('name') ?: __('A team member'),
+                ]),
             'outgoing' => TeamInvitation::query()
                 ->where('inviter_id', (string) $user->getKey())
                 ->where('status', TeamInvitation::STATUS_PENDING)

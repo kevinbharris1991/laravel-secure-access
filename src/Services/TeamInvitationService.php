@@ -113,7 +113,7 @@ class TeamInvitationService
                     return false;
                 }
 
-                $wasUnregistered = $invitation->invitee_id === null;
+                $wasUnregistered = $invitation->invitee_id === null || ! $this->user($invitation->invitee_id);
                 $invitation->invitee_id = (string) $user->getKey();
 
                 if ($wasUnregistered) {
