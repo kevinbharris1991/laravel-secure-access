@@ -272,6 +272,7 @@ class RegistrationTest extends TestCase
             ->assertSessionHasErrors('last_name');
         $this->registration(['gender' => 'unknown', 'date_of_birth' => '31/01/2000', 'email' => ['new@example.com']])
             ->assertSessionHasErrors(['gender', 'date_of_birth', 'email']);
+        $this->registration(['registration_role' => 'unknown'])->assertSessionHasErrors('registration_role');
         $this->registration(['date_of_birth' => '1899-12-31'])->assertSessionHasErrors('date_of_birth');
         $this->assertSame(0, PendingRegistration::count());
     }
