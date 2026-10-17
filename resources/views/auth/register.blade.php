@@ -50,6 +50,17 @@
             @include('secure-access::partials.errors', ['messages' => $errors->get('gender')])
         </div>
 
+        <fieldset class="sa-mt-4">
+            <legend class="sa-label">{{ __('Which best describes you?') }}</legend>
+            @foreach ($registrationRoles as $value => $label)
+                <label class="sa-text">
+                    <input type="radio" name="registration_role" value="{{ $value }}" @checked(old('registration_role') === $value) required>
+                    {{ __($label) }}
+                </label>
+            @endforeach
+            @include('secure-access::partials.errors', ['messages' => $errors->get('registration_role')])
+        </fieldset>
+
         <div class="sa-mt-4">
             <label class="sa-text" for="terms">
                 <input id="terms" type="checkbox" name="terms" value="1" @checked(old('terms')) required>
