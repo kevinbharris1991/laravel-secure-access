@@ -62,14 +62,20 @@ class TeamController extends Controller
     public function store(Request $request, TeamInvitationService $invitations): RedirectResponse
     {
         $user = $this->authorizeTeamAccess();
-        $inviteeRoles = $invitations->allowedInviteeRoles($user->getAttribute('registration_role'));
+        $isSelfAdvocate = $user->getAttribute('registration_role') === 'self_advocate';
+
+        if (is_string($request->input('email'))) {
+            $request->merge(['email' => mb_strtolower(trim($request->input('email')))]);
+        }
 
         $validated = $request->validate([
             'email' => ['required', 'string', 'email', 'max:255'],
-            'invitee_role' => [$inviteeRoles === [] ? 'prohibited' : 'nullable', Rule::in($inviteeRoles)],
+            'invitee_role' => $isSelfAdvocate
+                ? ['required', Rule::in($invitations->allowedInviteeRoles('self_advocate'))]
+                : ['prohibited'],
         ]);
 
-        $inviteeRole = $user->getAttribute('registration_role') === 'self_advocate'
+        $inviteeRole = $isSelfAdvocate
             ? ($validated['invitee_role'] ?? '')
             : 'self_advocate';
 

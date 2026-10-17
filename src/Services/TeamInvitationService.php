@@ -3,8 +3,11 @@
 namespace SecureAccess\Services;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 use SecureAccess\Models\TeamInvitation;
+use SecureAccess\Models\TeamMember;
+use SecureAccess\Models\UserEmail;
 use SecureAccess\Notifications\TeamInvitationNotification;
 use SecureAccess\SecureAccess;
 use SecureAccess\Support\UserResolver;
@@ -29,10 +32,10 @@ class TeamInvitationService
             throw new \InvalidArgumentException('Select a valid team member role.');
         }
 
-        $target = app(UserResolver::class)->find($email);
+        $target = $this->findByEmail($email);
         $targetRole = $target?->getAttribute('registration_role');
 
-        if ($target && $target->getKey() == $inviter->getKey()) {
+        if ($target && (string) $target->getKey() === (string) $inviter->getKey()) {
             throw new \InvalidArgumentException('You cannot invite yourself.');
         }
 
@@ -94,22 +97,73 @@ class TeamInvitationService
             ->get();
 
         foreach ($pending as $invitation) {
-            if ($invitation->invitee_role !== $role
-                || ! in_array($invitation->inviter_role, $this->allowedInviteeRoles($role), true)) {
-                $invitation->forceFill(['status' => TeamInvitation::STATUS_DECLINED])->save();
+            $notify = DB::transaction(function () use ($invitation, $user, $role) {
+                $invitation = TeamInvitation::query()->whereKey($invitation->getKey())->lockForUpdate()->first();
+                if (! $invitation || $invitation->status !== TeamInvitation::STATUS_PENDING) {
+                    return false;
+                }
 
-                continue;
+                $inviter = $this->user($invitation->inviter_id);
+                if ($invitation->invitee_role !== $role
+                    || ! in_array($invitation->invitee_role, $this->allowedInviteeRoles($invitation->inviter_role), true)
+                    || ! $inviter
+                    || $inviter->getAttribute('registration_role') !== $invitation->inviter_role) {
+                    $invitation->forceFill(['status' => TeamInvitation::STATUS_DECLINED])->save();
+
+                    return false;
+                }
+
+                $wasUnregistered = $invitation->invitee_id === null;
+                $invitation->invitee_id = (string) $user->getKey();
+
+                if ($wasUnregistered) {
+                    $selfAdvocate = $invitation->inviter_role === 'self_advocate' ? $inviter : $user;
+                    $teamMember = $invitation->inviter_role === 'self_advocate' ? $user : $inviter;
+                    TeamMember::query()->firstOrCreate(
+                        [
+                            'self_advocate_id' => (string) $selfAdvocate->getKey(),
+                            'team_member_id' => (string) $teamMember->getKey(),
+                        ],
+                        ['team_member_role' => $teamMember->getAttribute('registration_role')]
+                    );
+                    $invitation->status = TeamInvitation::STATUS_ACCEPTED;
+                }
+
+                $invitation->save();
+
+                return ! $wasUnregistered;
+            });
+
+            if ($notify) {
+                Notification::route('mail', $email)->notify(
+                    new TeamInvitationNotification($invitation)
+                );
             }
-
-            $invitation->forceFill(['invitee_id' => (string) $user->getKey()])->save();
-            Notification::route('mail', $email)->notify(
-                new TeamInvitationNotification($invitation)
-            );
         }
     }
 
     public function user(string $id): ?Model
     {
         return SecureAccess::newUserQuery()->find($id);
+    }
+
+    protected function findByEmail(string $email): ?Model
+    {
+        $users = SecureAccess::newUserQuery();
+        $emailColumn = app(UserResolver::class)->emailColumn();
+
+        if ($emailColumn) {
+            $wrapped = $users->getQuery()->getGrammar()->wrap($users->getModel()->qualifyColumn($emailColumn));
+            if ($user = $users->whereRaw("lower({$wrapped}) = ?", [$email])->first()) {
+                return $user;
+            }
+        }
+
+        $additionalEmail = UserEmail::query()
+            ->whereRaw('lower(email) = ?', [$email])
+            ->whereNotNull('verified_at')
+            ->first();
+
+        return $additionalEmail ? SecureAccess::newUserQuery()->find($additionalEmail->user_id) : null;
     }
 }

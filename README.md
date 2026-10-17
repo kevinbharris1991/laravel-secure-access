@@ -74,6 +74,11 @@ The package registers these routes (all names are prefixed with `secure-access.`
 | `GET /login/mfa` | `secure-access.challenge` | Choose an MFA method during login |
 | `GET /mfa/setup` | `secure-access.setup` | Register an MFA method (forced on first login) |
 | `GET /dashboard` | `secure-access.dashboard` | MFA-protected dashboard with tools based on current group permissions |
+| `GET /dashboard/team` | `secure-access.team.index` | View team relationships and invitations |
+| `POST /dashboard/team` | `secure-access.team.store` | Invite a team member by email |
+| `POST /dashboard/team/invitations/{invitation}/accept` | `secure-access.team.invitations.accept` | Accept a team invitation |
+| `DELETE /dashboard/team/invitations/{invitation}` | `secure-access.team.invitations.decline` | Decline a team invitation |
+| `DELETE /dashboard/team/relationships/{relationship}` | `secure-access.team.relationships.destroy` | Remove a team relationship |
 | `GET /security` | `secure-access.security` | Manage MFA methods and additional email addresses |
 | `GET /access` | `secure-access.access.index` | Manage database groups, permissions and group grants |
 | `GET /invitations` | `secure-access.invitations.index` | Create pending registrations with selected groups |
@@ -164,6 +169,19 @@ Older invitations without a profile still collect those details during activatio
 After activation, invitees complete the same role-selection step before MFA enrollment.
 On activation, the selected groups are assigned instead of the normal Guest assignment. Publicly
 submitted group IDs are ignored. No invitation code is needed.
+
+### Team invitations
+
+Self-advocates can invite a family member/caregiver or professional; family members/caregivers and
+professionals can invite a self-advocate. The invitation form asks only for the invitee's email
+address (and, for self-advocates, whether the invitee is a caregiver or professional). Registered
+invitees receive an email and can accept or decline from their MFA-protected team page. Unregistered
+invitees receive a link to register; their invitation is associated with their account after they
+select the matching registration role, and the team relationship is then created.
+
+Accepted relationships appear on both users' team pages: self-advocates see loved ones and staff,
+professionals see clients, and caregivers see loved ones. Either participant can remove a
+relationship. The relationship does not grant any additional access to private account data.
 
 Routes use `routes.prefix` (empty by default), and registration submissions share the login per-IP
 throttle. The package does not add homepage navigation or unprefixed `login` / `register` route names.

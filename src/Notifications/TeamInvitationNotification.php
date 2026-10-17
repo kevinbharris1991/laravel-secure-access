@@ -29,7 +29,7 @@ class TeamInvitationNotification extends Notification
             return $message
                 ->line(__('Someone invited you to join their team. Create an account to continue.'))
                 ->action(__('Register'), route('secure-access.register'))
-                ->line(__('After you select your account type, you can review and respond to the invitation.'));
+                ->line(__('After you register and select the matching account type, you will be connected to their team.'));
         }
 
         return $message
