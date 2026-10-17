@@ -35,7 +35,6 @@ class RegistrationTest extends TestCase
             'date_of_birth' => '2000-01-31',
             'email' => 'new@example.com',
             'gender' => 'non_binary',
-            'registration_role' => 'self_advocate',
             'terms' => '1',
             'privacy' => '1',
         ]);
@@ -79,13 +78,8 @@ class RegistrationTest extends TestCase
             ->assertSee('name="email"', false)
             ->assertSee('name="gender"', false)
             ->assertSee('value="non_binary"', false)
-            ->assertSee('name="registration_role"', false)
-            ->assertSee('value="self_advocate"', false)
-            ->assertSee('Self-advocate: I am an individual with high support needs.')
-            ->assertSee('Family member / Caregiver: I support a relative with high support needs.')
-            ->assertSee('Professional: I work in a field or career supporting individuals with high support needs.')
-            ->assertSee("Employee: I work for Camp Cody's.")
-            ->assertSee('Other / None of the above')
+            ->assertDontSee('name="registration_role"', false)
+            ->assertDontSee('Which best describes you?')
             ->assertSee('name="terms"', false)
             ->assertSee('name="privacy"', false)
             ->assertSee('href="/terms"', false)
@@ -102,12 +96,12 @@ class RegistrationTest extends TestCase
         $this->registration(['email' => 'later@example.com']);
         $later = $this->activationUrl('later@example.com');
         $this->registration();
-        $this->activate($this->activationUrl())->assertRedirect(route('secure-access.setup'));
+        $this->activate($this->activationUrl())->assertRedirect(route('secure-access.register.role'));
 
         $first = User::sole();
         $this->assertSame(['executive-director'], $first->accessGroups()->pluck('key')->all());
 
-        $this->activate($later, ['username' => 'later'])->assertRedirect(route('secure-access.setup'));
+        $this->activate($later, ['username' => 'later'])->assertRedirect(route('secure-access.register.role'));
         $this->assertSame(['guest'], User::where('username', 'later')->sole()->accessGroups()->pluck('key')->all());
     }
 
@@ -115,7 +109,7 @@ class RegistrationTest extends TestCase
     {
         $this->createUser();
         $this->registration(['groups' => [AccessGroup::where('key', 'executive-director')->value('id')]]);
-        $this->activate($this->activationUrl())->assertRedirect(route('secure-access.setup'));
+        $this->activate($this->activationUrl())->assertRedirect(route('secure-access.register.role'));
 
         $this->assertSame(['guest'], User::where('username', 'newuser')->sole()->accessGroups()->pluck('key')->all());
     }
@@ -123,11 +117,11 @@ class RegistrationTest extends TestCase
     public function test_deleting_all_users_does_not_reopen_executive_bootstrap(): void
     {
         $this->registration();
-        $this->activate($this->activationUrl())->assertRedirect(route('secure-access.setup'));
+        $this->activate($this->activationUrl())->assertRedirect(route('secure-access.register.role'));
         User::sole()->delete();
         Notification::fake();
         $this->registration();
-        $this->activate($this->activationUrl())->assertRedirect(route('secure-access.setup'));
+        $this->activate($this->activationUrl())->assertRedirect(route('secure-access.register.role'));
         $this->assertSame(['guest'], User::sole()->accessGroups()->pluck('key')->all());
     }
 
@@ -135,7 +129,7 @@ class RegistrationTest extends TestCase
     {
         config(['secure-access-acl.enabled' => false]);
         $this->registration();
-        $this->activate($this->activationUrl())->assertRedirect(route('secure-access.setup'));
+        $this->activate($this->activationUrl())->assertRedirect(route('secure-access.register.role'));
         $this->assertSame(0, User::sole()->accessGroups()->count());
     }
 
@@ -151,7 +145,7 @@ class RegistrationTest extends TestCase
         $this->assertSame('New Q User', $pending->name);
         $this->assertSame('2000-01-31', $pending->date_of_birth->toDateString());
         $this->assertSame('non_binary', $pending->gender);
-        $this->assertSame('self_advocate', $pending->registration_role);
+        $this->assertNull($pending->registration_role);
         $this->assertNotNull($pending->terms_accepted_at);
         $this->assertNotNull($pending->privacy_policy_accepted_at);
         $this->assertEquals(now()->addMinutes(5), $pending->expires_at);
@@ -164,12 +158,14 @@ class RegistrationTest extends TestCase
             ->assertSee('name="username"', false)
             ->assertSee('name="password"', false)
             ->assertSee('name="password_confirmation"', false)
+            ->assertDontSee('name="registration_role"', false)
+            ->assertDontSee('Which best describes you?')
             ->assertSee('enctype="multipart/form-data"', false);
 
         $this->activate($url, [
             'username' => ' NewUser ',
             'profile_photo' => UploadedFile::fake()->image('me.png', 200, 200),
-        ])->assertRedirect(route('secure-access.setup'));
+        ])->assertRedirect(route('secure-access.register.role'));
 
         $user = User::sole();
         $this->assertSame('New Q User', $user->name);
@@ -177,7 +173,7 @@ class RegistrationTest extends TestCase
         $this->assertSame('new@example.com', $user->email);
         $this->assertSame('2000-01-31', substr($user->date_of_birth, 0, 10));
         $this->assertSame('non_binary', $user->gender);
-        $this->assertSame('self_advocate', $user->registration_role);
+        $this->assertNull($user->registration_role);
         $this->assertNotNull($user->terms_accepted_at);
         $this->assertNotNull($user->privacy_policy_accepted_at);
         $this->assertNotNull($user->email_verified_at);
@@ -192,6 +188,22 @@ class RegistrationTest extends TestCase
         $this->assertFalse(SecureAccess::mfaVerified($user));
         $this->assertSame((string) $user->id, session('secure_access.pending.user_id'));
         $this->get('/dashboard')->assertRedirect(route('secure-access.login'));
+
+        $this->get(route('secure-access.register.role'))->assertOk()
+            ->assertSee('Which best describes you?')
+            ->assertSee('name="registration_role"', false)
+            ->assertSee('value="self_advocate"', false)
+            ->assertSee('Self-advocate: I am an individual with high support needs.')
+            ->assertSee('Family member / Caregiver: I support a relative with high support needs.')
+            ->assertSee('Professional: I work in a field or career supporting individuals with high support needs.')
+            ->assertDontSee('value="employee"', false)
+            ->assertDontSee("Employee: I work for Camp Cody's.")
+            ->assertSee('Other / None of the above');
+        $this->post(route('secure-access.register.role.store'), ['registration_role' => 'self_advocate'])
+            ->assertRedirect(route('secure-access.setup'));
+        $this->assertSame('self_advocate', $user->fresh()->registration_role);
+        $this->assertGuest();
+        $this->assertFalse(SecureAccess::mfaVerified($user));
 
         $this->get(route('secure-access.setup'))->assertOk();
         $this->get(route('secure-access.setup.create', 'totp'))->assertOk();
@@ -211,10 +223,122 @@ class RegistrationTest extends TestCase
     public function test_profile_photo_is_optional(): void
     {
         $this->registration();
-        $this->activate($this->activationUrl())->assertRedirect(route('secure-access.setup'));
+        $this->activate($this->activationUrl())->assertRedirect(route('secure-access.register.role'));
 
         $this->assertNull(User::sole()->profile_photo_path);
         $this->assertSame([], Storage::disk('public')->allFiles());
+    }
+
+    public function test_role_is_only_collected_after_activation_and_must_be_allowlisted(): void
+    {
+        $this->registration(['registration_role' => 'employee'])->assertSessionHasNoErrors();
+        $this->assertNull(PendingRegistration::sole()->registration_role);
+        $this->activate($this->activationUrl(), ['registration_role' => 'employee']);
+        $user = User::sole();
+        $this->assertNull($user->registration_role);
+
+        foreach ([[], ['registration_role' => ''], ['registration_role' => 'employee'], ['registration_role' => 'executive-director'], ['registration_role' => ['other']]] as $input) {
+            $this->from(route('secure-access.register.role'))
+                ->post(route('secure-access.register.role.store'), $input)
+                ->assertRedirect(route('secure-access.register.role'))
+                ->assertSessionHasErrors('registration_role');
+            $this->assertNull($user->fresh()->registration_role);
+            $this->assertGuest();
+        }
+
+        $this->post(route('secure-access.register.role.store'), ['registration_role' => 'professional'])
+            ->assertRedirect(route('secure-access.setup'));
+        $this->assertSame('professional', $user->fresh()->registration_role);
+        $this->get(route('secure-access.register.role'))->assertRedirect(route('secure-access.challenge'));
+        $this->post(route('secure-access.register.role.store'), ['registration_role' => 'employee'])
+            ->assertRedirect(route('secure-access.challenge'));
+        $this->assertSame('professional', $user->fresh()->registration_role);
+        $this->assertGuest();
+    }
+
+    public function test_every_role_choice_is_accepted_without_changing_access_groups(): void
+    {
+        foreach (['self_advocate', 'family_caregiver', 'professional', 'other'] as $role) {
+            $email = $role.'@example.com';
+            $this->registration(['email' => $email])->assertSessionHasNoErrors();
+            $this->activate($this->activationUrl($email), ['username' => $role]);
+            $user = User::where('email', $email)->sole();
+            $groups = $user->accessGroups()->pluck('key')->all();
+            $this->post(route('secure-access.register.role.store'), [
+                'registration_role' => $role,
+                'groups' => [AccessGroup::where('key', 'executive-director')->value('id')],
+            ])->assertRedirect(route('secure-access.setup'));
+            $this->assertSame($role, $user->fresh()->registration_role);
+            $this->assertSame($groups, $user->accessGroups()->pluck('key')->all());
+            $this->assertGuest();
+        }
+    }
+
+    public function test_role_selection_cannot_be_skipped_by_direct_mfa_requests(): void
+    {
+        $this->registration();
+        $this->activate($this->activationUrl());
+        $roleUrl = route('secure-access.register.role');
+
+        $this->get(route('secure-access.challenge'))->assertRedirect($roleUrl);
+        $this->get(route('secure-access.setup'))->assertRedirect($roleUrl);
+        $this->post(route('secure-access.setup.sms.send'), ['phone' => '+15555550123'])->assertRedirect($roleUrl);
+        foreach (['totp', 'sms', 'biometric', 'security_key'] as $type) {
+            $this->get(route('secure-access.setup.create', $type))->assertRedirect($roleUrl);
+            $this->post(route('secure-access.setup.store', $type), [])->assertRedirect($roleUrl);
+        }
+        $this->assertNull(session('secure_access.setup.totp'));
+        $this->assertDatabaseCount('mfa_methods', 0);
+        $this->assertGuest();
+    }
+
+    public function test_role_page_requires_a_live_pending_login_and_resumes_after_signing_in(): void
+    {
+        $this->get(route('secure-access.register.role'))->assertRedirect(route('secure-access.login'));
+        $this->post(route('secure-access.register.role.store'), ['registration_role' => 'other'])
+            ->assertRedirect(route('secure-access.login'));
+
+        $this->registration();
+        $this->activate($this->activationUrl());
+        $this->travel(11)->minutes();
+        $this->get(route('secure-access.register.role'))->assertRedirect(route('secure-access.login'));
+        $this->post(route('secure-access.register.role.store'), ['registration_role' => 'other'])
+            ->assertRedirect(route('secure-access.login'));
+        $this->assertNull(User::sole()->registration_role);
+        $this->assertGuest();
+
+        $this->passwordStep('newuser', 'Secure-password123!')->assertRedirect(route('secure-access.challenge'));
+        $this->get(route('secure-access.challenge'))->assertRedirect(route('secure-access.register.role'));
+        $this->get(route('secure-access.register.role'))->assertOk();
+        $this->post(route('secure-access.register.role.store'), ['registration_role' => 'other'])
+            ->assertRedirect(route('secure-access.setup'));
+        $this->assertGuest();
+    }
+
+    public function test_switching_pending_users_does_not_apply_another_accounts_role_requirement(): void
+    {
+        $legacy = $this->createUser();
+        $this->registration();
+        $this->activate($this->activationUrl());
+        $new = User::where('username', 'newuser')->sole();
+
+        $this->passwordStep()->assertRedirect(route('secure-access.challenge'));
+        $this->get(route('secure-access.challenge'))->assertRedirect(route('secure-access.setup'));
+        $this->get(route('secure-access.setup'))->assertOk();
+        $this->get(route('secure-access.register.role'))->assertRedirect(route('secure-access.challenge'));
+        $this->post(route('secure-access.register.role.store'), ['registration_role' => 'other'])
+            ->assertRedirect(route('secure-access.challenge'));
+        $this->assertNull($legacy->fresh()->registration_role);
+        $this->assertNull($new->fresh()->registration_role);
+
+        $this->passwordStep('newuser', 'Secure-password123!');
+        $this->get(route('secure-access.setup'))->assertRedirect(route('secure-access.register.role'));
+        $this->post(route('secure-access.register.role.store'), ['registration_role' => 'family_caregiver'])
+            ->assertRedirect(route('secure-access.setup'));
+        $this->passwordStep('newuser', 'Secure-password123!');
+        $this->get(route('secure-access.challenge'))->assertRedirect(route('secure-access.setup'));
+        $this->assertSame('family_caregiver', $new->fresh()->registration_role);
+        $this->assertGuest();
     }
 
     public function test_profile_photo_must_be_a_small_image(): void
@@ -266,13 +390,12 @@ class RegistrationTest extends TestCase
     public function test_required_fields_and_formats_are_validated(): void
     {
         $this->post(route('secure-access.register.store'), [])
-            ->assertSessionHasErrors(['first_name', 'last_name', 'date_of_birth', 'email', 'gender', 'registration_role', 'terms', 'privacy']);
+            ->assertSessionHasErrors(['first_name', 'last_name', 'date_of_birth', 'email', 'gender', 'terms', 'privacy']);
         $this->registration(['middle_initial' => 'AB'])->assertSessionHasErrors('middle_initial');
         $this->registration(['first_name' => str_repeat('A', 255), 'last_name' => str_repeat('B', 255)])
             ->assertSessionHasErrors('last_name');
         $this->registration(['gender' => 'unknown', 'date_of_birth' => '31/01/2000', 'email' => ['new@example.com']])
             ->assertSessionHasErrors(['gender', 'date_of_birth', 'email']);
-        $this->registration(['registration_role' => 'unknown'])->assertSessionHasErrors('registration_role');
         $this->registration(['date_of_birth' => '1899-12-31'])->assertSessionHasErrors('date_of_birth');
         $this->assertSame(0, PendingRegistration::count());
     }
@@ -317,7 +440,7 @@ class RegistrationTest extends TestCase
         $this->activate(str_replace('/activate/1/', '/activate/2/', $url))->assertSessionHasErrors('activation');
         $this->assertSame(0, User::count());
 
-        $this->activate($url)->assertRedirect(route('secure-access.setup'));
+        $this->activate($url)->assertRedirect(route('secure-access.register.role'));
         $this->activate($url, ['username' => 'another'])->assertSessionHasErrors('activation');
         $this->assertSame(1, User::count());
 
@@ -388,11 +511,14 @@ class RegistrationTest extends TestCase
         ]);
 
         $this->registration();
-        $this->activate($this->activationUrl())->assertRedirect(route('secure-access.setup'));
+        $this->activate($this->activationUrl())->assertRedirect(route('secure-access.register.role'));
         $user = RegistrationUser::sole();
         $this->assertSame('newuser', $user->handle);
         $this->assertSame('new@example.com', $user->email_address);
         $this->assertTrue(Hash::check('Secure-password123!', $user->password));
+        $this->post(route('secure-access.register.role.store'), ['registration_role' => 'professional'])
+            ->assertRedirect(route('secure-access.setup'));
+        $this->assertSame('professional', $user->fresh()->registration_role);
 
         $this->registration(['email' => 'NEW@example.com'])->assertSessionHasErrors('email');
         $this->passwordStep('NEWUSER', 'Secure-password123!')->assertRedirect(route('secure-access.challenge'));
@@ -402,14 +528,18 @@ class RegistrationTest extends TestCase
     {
         Schema::table('users', function ($table) {
             $table->dropUnique(['username']);
-            $table->dropColumn(['name', 'username', 'date_of_birth', 'gender', 'profile_photo_path']);
+            $table->dropColumn(['name', 'username', 'date_of_birth', 'gender', 'profile_photo_path', 'registration_role']);
         });
 
         $this->registration();
         $url = $this->activationUrl();
         $this->get($url)->assertOk()->assertDontSee('name="username"', false);
-        $this->activate($url, ['username' => null])->assertRedirect(route('secure-access.setup'));
+        $this->activate($url, ['username' => null])->assertRedirect(route('secure-access.register.role'));
         $this->assertSame('new@example.com', User::sole()->email);
+        $this->post(route('secure-access.register.role.store'), ['registration_role' => 'other'])
+            ->assertRedirect(route('secure-access.setup'));
+        $this->get(route('secure-access.setup'))->assertOk();
+        $this->assertGuest();
         $this->passwordStep('new@example.com', 'Secure-password123!')->assertRedirect(route('secure-access.challenge'));
     }
 
@@ -421,7 +551,7 @@ class RegistrationTest extends TestCase
         });
 
         $this->registration()->assertRedirect(route('secure-access.register.sent'));
-        $this->activate($this->activationUrl())->assertRedirect(route('secure-access.setup'));
+        $this->activate($this->activationUrl())->assertRedirect(route('secure-access.register.role'));
 
         $user = User::sole();
         $email = UserEmail::sole();
@@ -439,7 +569,7 @@ class RegistrationTest extends TestCase
     public function test_mfa_enrollment_after_activation_expires(): void
     {
         $this->registration();
-        $this->activate($this->activationUrl())->assertRedirect(route('secure-access.setup'));
+        $this->activate($this->activationUrl())->assertRedirect(route('secure-access.register.role'));
         $this->travel(11)->minutes();
 
         $this->get(route('secure-access.setup'))->assertRedirect(route('secure-access.login'));
@@ -457,6 +587,9 @@ class RegistrationTest extends TestCase
         $this->registration(['email' => 'other@example.com'])->assertRedirect('/dashboard');
         $this->get($url)->assertRedirect('/dashboard');
         $this->activate($url)->assertRedirect('/dashboard');
+        $this->get(route('secure-access.register.role'))->assertRedirect('/dashboard');
+        $this->post(route('secure-access.register.role.store'), ['registration_role' => 'other'])
+            ->assertRedirect('/dashboard');
         $this->assertSame(1, User::count());
         $this->assertSame(1, PendingRegistration::count());
     }
@@ -471,7 +604,7 @@ class RegistrationTest extends TestCase
             'url.intended' => 'https://example.test/elsewhere',
         ]);
 
-        $this->activate($url)->assertRedirect(route('secure-access.setup'));
+        $this->activate($url)->assertRedirect(route('secure-access.register.role'));
         $this->assertGuest();
         $this->assertNull(session(SecureAccess::MFA_VERIFIED_SESSION_KEY));
         $this->assertNull(session('url.intended'));

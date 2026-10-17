@@ -27,9 +27,9 @@ use SecureAccess\Support\UserResolver;
 use Throwable;
 
 /**
- * Registration happens in two steps: the profile form (name parts, date of birth, email, gender and consent)
+ * The profile form (name parts, date of birth, email, gender and consent)
  * emails an activation link; the activation page collects the credentials and creates the account,
- * after which multi-factor enrollment is required before the user is authenticated.
+ * followed by role selection and multi-factor enrollment before the user is authenticated.
  */
 class RegistrationController extends Controller
 {
@@ -47,7 +47,6 @@ class RegistrationController extends Controller
 
         return view('secure-access::auth.register', [
             'genders' => $this->genders(),
-            'registrationRoles' => $this->registrationRoles(),
             'minimumAge' => $this->minimumAge(),
             'latestBirthDate' => $this->latestBirthDate()->toDateString(),
             'termsUrl' => config('secure-access.registration.terms_url'),
@@ -91,7 +90,6 @@ class RegistrationController extends Controller
                 }
             }],
             'gender' => ['required', 'string', Rule::in(array_map('strval', array_keys($this->genders())))],
-            'registration_role' => ['required', 'string', Rule::in(array_keys($this->registrationRoles()))],
             'terms' => ['accepted'],
             'privacy' => ['accepted'],
         ], [
@@ -121,7 +119,7 @@ class RegistrationController extends Controller
             ], fn ($part) => $part !== null && $part !== '')),
             'date_of_birth' => $validated['date_of_birth'],
             'gender' => $validated['gender'],
-            'registration_role' => $validated['registration_role'],
+            'registration_role' => null,
             'token' => PendingRegistration::hashToken($token),
             'terms_accepted_at' => now(),
             'privacy_policy_accepted_at' => now(),
@@ -293,6 +291,7 @@ class RegistrationController extends Controller
                 }
 
                 $user = $this->createUser($pending, $validated, $usernameColumn, $photo ?: null);
+                DB::table('pending_registration_roles')->updateOrInsert(['user_id' => (string) $user->getKey()]);
                 if (config('secure-access-acl.enabled')) {
                     if ($first || $groups === []) {
                         $default = AccessGroup::query()->where('key', $first ? 'executive-director' : 'guest')->firstOrFail();
@@ -335,8 +334,64 @@ class RegistrationController extends Controller
         $request->session()->regenerate();
         $this->pending->start($user);
 
-        return redirect()->route('secure-access.setup')
-            ->with('status', __('Your account has been activated. Set up multi-factor authentication to continue.'));
+        return redirect()->route('secure-access.register.role')
+            ->with('status', __('Your account has been activated. Tell us which best describes you to continue.'));
+    }
+
+    public function role(): View|RedirectResponse
+    {
+        if ($this->authenticated()) {
+            return redirect(config('secure-access.home', '/'));
+        }
+
+        if (! $user = $this->pending->user()) {
+            return redirect()->route('secure-access.login');
+        }
+
+        if (! $this->pending->requiresRegistrationRole($user)) {
+            return redirect()->route('secure-access.challenge');
+        }
+
+        return view('secure-access::auth.registration-role', [
+            'registrationRoles' => $this->registrationRoles(),
+        ]);
+    }
+
+    public function storeRole(Request $request): RedirectResponse
+    {
+        if ($this->authenticated()) {
+            return redirect(config('secure-access.home', '/'));
+        }
+
+        if (! $user = $this->pending->user()) {
+            return redirect()->route('secure-access.login');
+        }
+
+        if (! $this->pending->requiresRegistrationRole($user)) {
+            return redirect()->route('secure-access.challenge');
+        }
+
+        $validated = $request->validate([
+            'registration_role' => ['required', 'string', Rule::in(array_keys($this->registrationRoles()))],
+        ]);
+
+        DB::transaction(function () use ($user, $validated) {
+            $requirement = DB::table('pending_registration_roles')
+                ->where('user_id', (string) $user->getKey())->lockForUpdate()->first();
+
+            if (! $requirement) {
+                return;
+            }
+
+            $columns = $user->getConnection()->getSchemaBuilder()->getColumnListing($user->getTable());
+            if (in_array('registration_role', array_map('strtolower', $columns), true)) {
+                $user->forceFill(['registration_role' => $validated['registration_role']])->save();
+            }
+
+            DB::table('pending_registration_roles')->where('user_id', (string) $user->getKey())->delete();
+        });
+
+        return redirect()->route('secure-access.setup');
     }
 
     protected function createUser(PendingRegistration $pending, array $validated, ?string $usernameColumn, ?string $photo): Model
@@ -362,7 +417,6 @@ class RegistrationController extends Controller
             'name' => $pending->name,
             'date_of_birth' => $pending->date_of_birth?->toDateString(),
             'gender' => $pending->gender,
-            'registration_role' => $pending->registration_role,
             'profile_photo_path' => $photo,
             'terms_accepted_at' => $pending->terms_accepted_at,
             'privacy_policy_accepted_at' => $pending->privacy_policy_accepted_at,
@@ -429,7 +483,6 @@ class RegistrationController extends Controller
             'self_advocate' => __('Self-advocate: I am an individual with high support needs.'),
             'family_caregiver' => __('Family member / Caregiver: I support a relative with high support needs.'),
             'professional' => __('Professional: I work in a field or career supporting individuals with high support needs.'),
-            'employee' => __("Employee: I work for Camp Cody's."),
             'other' => __('Other / None of the above'),
         ];
     }

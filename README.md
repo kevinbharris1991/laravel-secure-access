@@ -30,9 +30,12 @@ php artisan migrate
 ```
 
 The migrations add `username`, `failed_login_attempts`, `locked_at`, `date_of_birth`, `gender`,
-`profile_photo_path`, `terms_accepted_at` and `privacy_policy_accepted_at` columns to `users` (the `username`
+`registration_role`, `profile_photo_path`, `terms_accepted_at` and `privacy_policy_accepted_at` columns to `users` (the `username`
 and registration profile columns are skipped if they already exist) and create the `user_emails`,
-`mfa_methods` and `pending_registrations` tables.
+`mfa_methods`, `pending_registrations` and `pending_registration_roles` tables.
+
+When upgrading an existing installation, run `php artisan migrate` before using
+post-activation role selection; it requires the new `pending_registration_roles` table.
 
 Optionally add the trait to your `User` model for convenient relationships:
 
@@ -63,7 +66,9 @@ The package registers these routes (all names are prefixed with `secure-access.`
 | `POST /register` | `secure-access.register.store` | Validate the profile and email an activation link |
 | `GET /register/sent` | `secure-access.register.sent` | "Check your email" page |
 | `GET /register/activate/{registration}/{token}` | `secure-access.register.activate` | Activation page (signed link from the email) |
-| `POST /register/activate/{registration}/{token}` | `secure-access.register.activate.store` | Create the account and begin mandatory MFA enrollment |
+| `POST /register/activate/{registration}/{token}` | `secure-access.register.activate.store` | Create the account and begin role selection |
+| `GET /register/role` | `secure-access.register.role` | Choose a registration role after activation (pending login required) |
+| `POST /register/role` | `secure-access.register.role.store` | Save the registration role and continue to mandatory MFA enrollment |
 | `GET /login` | `secure-access.login` | Username / email + password form |
 | `POST /logout` | `secure-access.logout` | Log out |
 | `GET /login/mfa` | `secure-access.challenge` | Choose an MFA method during login |
@@ -122,8 +127,14 @@ login page, e.g. in `bootstrap/app.php`:
    `user_emails`. Optional profile columns (`name`, `date_of_birth`, `gender`, `profile_photo_path`, consent
    timestamps, `email_verified_at`) are only written when they exist. Custom tables must still provide
    defaults for any other required columns.
-4. **MFA.** Activation **does not authenticate the user or mark MFA verified**. It starts the same expiring
-   pending session used after a successful password check and redirects to `secure-access.setup`. Only
+4. **About you.** Activation **does not authenticate the user or mark MFA verified**. It starts the same expiring
+   pending session used after a successful password check and redirects to `secure-access.register.role`.
+   “Which best describes you?” offers Self-advocate, Family member / Caregiver, Professional,
+   and Other / None of the above. This required selection is saved in `registration_role` only when that
+   optional column exists on the configured user table; it never assigns ACL groups or permissions.
+   A durable `pending_registration_roles` record prevents skipping this step, including after signing in
+   again if the pending session expires. Existing accounts are not forced through this step.
+5. **MFA.** Role selection continues to `secure-access.setup` without authenticating the user. Only
    proving possession of an MFA method completes authentication, after which the user is sent to `home`
    (the dashboard). If enrollment expires, log in with the new credentials to resume setup.
 
@@ -150,6 +161,7 @@ the page. Re-inviting the same address replaces the details and invalidates its 
 No user account is created until activation. The recipient accepts the terms and privacy
 policy and chooses sign-in credentials without re-entering the director-provided profile.
 Older invitations without a profile still collect those details during activation.
+After activation, invitees complete the same role-selection step before MFA enrollment.
 On activation, the selected groups are assigned instead of the normal Guest assignment. Publicly
 submitted group IDs are ignored. No invitation code is needed.
 

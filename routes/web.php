@@ -14,6 +14,7 @@ use SecureAccess\Http\Controllers\InvitationController;
 use SecureAccess\Http\Controllers\AccessManagementController;
 use SecureAccess\Models\MfaMethod;
 use SecureAccess\Http\Middleware\AuditAccessChanges;
+use SecureAccess\Http\Middleware\RequireRegistrationRole;
 
 Route::middleware(config('secure-access.routes.middleware', ['web']))
     ->prefix(config('secure-access.routes.prefix', ''))
@@ -22,6 +23,8 @@ Route::middleware(config('secure-access.routes.middleware', ['web']))
         Route::get('register', [RegistrationController::class, 'create'])->name('register');
         Route::post('register', [RegistrationController::class, 'store'])->middleware('throttle:secure-access')->name('register.store');
         Route::get('register/sent', [RegistrationController::class, 'sent'])->name('register.sent');
+        Route::get('register/role', [RegistrationController::class, 'role'])->name('register.role');
+        Route::post('register/role', [RegistrationController::class, 'storeRole'])->middleware('throttle:secure-access')->name('register.role.store');
         Route::get('register/activate/{registration}/{token}', [RegistrationController::class, 'activate'])
             ->whereNumber('registration')
             ->middleware('throttle:secure-access')
@@ -36,16 +39,18 @@ Route::middleware(config('secure-access.routes.middleware', ['web']))
         Route::post('logout', [LoginController::class, 'destroy'])->name('logout');
 
         // Second factor on every login.
-        Route::get('login/mfa', [ChallengeController::class, 'index'])->name('challenge');
-        Route::get('login/mfa/{method}', [ChallengeController::class, 'show'])->name('challenge.show');
-        Route::post('login/mfa/{method}/send', [ChallengeController::class, 'send'])->middleware('throttle:secure-access')->name('challenge.send');
-        Route::post('login/mfa/{method}', [ChallengeController::class, 'verify'])->middleware('throttle:secure-access')->name('challenge.verify');
+        Route::middleware(RequireRegistrationRole::class)->group(function () {
+            Route::get('login/mfa', [ChallengeController::class, 'index'])->name('challenge');
+            Route::get('login/mfa/{method}', [ChallengeController::class, 'show'])->name('challenge.show');
+            Route::post('login/mfa/{method}/send', [ChallengeController::class, 'send'])->middleware('throttle:secure-access')->name('challenge.send');
+            Route::post('login/mfa/{method}', [ChallengeController::class, 'verify'])->middleware('throttle:secure-access')->name('challenge.verify');
 
-        // Method registration (forced on first login, optional afterwards).
-        Route::get('mfa/setup', [SetupController::class, 'index'])->name('setup');
-        Route::post('mfa/setup/sms/send', [SetupController::class, 'sendSms'])->middleware('throttle:secure-access')->name('setup.sms.send');
-        Route::get('mfa/setup/{type}', [SetupController::class, 'create'])->whereIn('type', MfaMethod::TYPES)->name('setup.create');
-        Route::post('mfa/setup/{type}', [SetupController::class, 'store'])->whereIn('type', MfaMethod::TYPES)->middleware('throttle:secure-access')->name('setup.store');
+            // Method registration (forced on first login, optional afterwards).
+            Route::get('mfa/setup', [SetupController::class, 'index'])->name('setup');
+            Route::post('mfa/setup/sms/send', [SetupController::class, 'sendSms'])->middleware('throttle:secure-access')->name('setup.sms.send');
+            Route::get('mfa/setup/{type}', [SetupController::class, 'create'])->whereIn('type', MfaMethod::TYPES)->name('setup.create');
+            Route::post('mfa/setup/{type}', [SetupController::class, 'store'])->whereIn('type', MfaMethod::TYPES)->middleware('throttle:secure-access')->name('setup.store');
+        });
 
         Route::middleware('secure-access.mfa')->group(function () {
             Route::get('dashboard', DashboardController::class)->name('dashboard');
