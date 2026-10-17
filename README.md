@@ -419,6 +419,28 @@ Blade supports both package and standard Gate conditionals:
 `@elsesecureAccess(...)` and `@else` are supported by the package conditional.
 Neither dashboard nor Blade checks undo data already loaded by a controller.
 
+For group membership rather than permissions, use `@is` with the exact database
+group **key**, not its display name:
+
+```blade
+@is('guest')
+    {{-- Content for members of the guest group --}}
+@elseis('executive-director')
+    {{-- Content for members of the executive-director group --}}
+@else
+    {{-- Other users --}}
+@endis
+```
+
+This checks current polymorphic memberships using the configured `secure-access.guard`
+and works without the optional `HasAccessGroups` trait. Unauthenticated users,
+unsupported or unsaved user models, and disabled ACL return false; disabled ACL
+does not query ACL tables. Membership changes are reflected on subsequent renders.
+Unlike Laravel's `@guest`, `@is('guest')` means membership in the `guest` group,
+not an unauthenticated session. Membership does not imply a particular permission:
+continue using `@secureAccess` or `@can` for permission checks. Hiding content does
+not replace destination route authorization or mandatory MFA.
+
 ### Initial camp data: 12 groups
 
 Migrations initialize the built-in definitions in the database. The compatibility command

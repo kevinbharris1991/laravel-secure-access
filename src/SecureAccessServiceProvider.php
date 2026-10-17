@@ -50,6 +50,9 @@ class SecureAccessServiceProvider extends ServiceProvider
         Blade::if('secureAccess', fn (string $permission, ?AccessScope $subject = null) =>
             Gate::allows('secure-access', [$permission, $subject]));
 
+        Blade::if('is', fn (string $groupKey) =>
+            $this->app->make(AccessControl::class)->isMember(SecureAccess::guard()->user(), $groupKey));
+
         RateLimiter::for('secure-access', fn (Request $request) => Limit::perMinute(
             (int) config('secure-access.routes.throttle', 10)
         )->by($request->ip()));
