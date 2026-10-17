@@ -4,6 +4,7 @@ namespace SecureAccess\Support;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use SecureAccess\Models\MfaMethod;
 use SecureAccess\SecureAccess;
 
@@ -45,6 +46,11 @@ class PendingLogin
     public function hasMethods(Model $user): bool
     {
         return MfaMethod::query()->where('user_id', $user->getKey())->exists();
+    }
+
+    public function requiresRegistrationRole(Model $user): bool
+    {
+        return DB::table('pending_registration_roles')->where('user_id', (string) $user->getKey())->exists();
     }
 
     /**

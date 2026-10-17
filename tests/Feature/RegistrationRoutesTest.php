@@ -17,8 +17,13 @@ class RegistrationRoutesTest extends TestCase
     {
         $this->assertSame('/auth/register', route('secure-access.register', [], false));
         $this->assertSame('/auth/register', route('secure-access.register.store', [], false));
+        $this->assertSame('/auth/register/role', route('secure-access.register.role', [], false));
+        $this->assertSame('/auth/register/role', route('secure-access.register.role.store', [], false));
         $this->get('/auth/register')->assertOk()->assertSee(route('secure-access.register.store'));
         $this->get('/register')->assertNotFound();
         $this->post('/auth/register', [])->assertSessionHasErrors('email');
+        $this->get('/auth/register/role')->assertRedirect(route('secure-access.login'));
+        $this->post('/auth/register/role', [])->assertRedirect(route('secure-access.login'));
+        $this->get('/register/role')->assertNotFound();
     }
 }

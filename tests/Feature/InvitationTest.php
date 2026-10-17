@@ -168,7 +168,7 @@ class InvitationTest extends TestCase
             'username' => 'staffmember',
             'password' => 'Secure-password123!',
             'password_confirmation' => 'Secure-password123!',
-        ])->assertRedirect(route('secure-access.setup'));
+        ])->assertRedirect(route('secure-access.register.role'));
 
         $user = User::where('username', 'staffmember')->sole();
         $this->assertSame('Staff Member', $user->name);
@@ -180,6 +180,12 @@ class InvitationTest extends TestCase
         $this->assertSame(0, PendingRegistration::count());
         $this->assertGuest();
         $this->assertFalse(SecureAccess::mfaVerified($user));
+        $this->get(route('secure-access.setup'))->assertRedirect(route('secure-access.register.role'));
+        $this->post(route('secure-access.register.role.store'), ['registration_role' => 'employee'])
+            ->assertRedirect(route('secure-access.setup'));
+        $this->assertSame('employee', $user->fresh()->registration_role);
+        $this->assertSame([$group->key], $user->accessGroups()->pluck('key')->all());
+        $this->assertGuest();
         $this->get($url)->assertRedirect(route('secure-access.register'));
     }
 
@@ -215,7 +221,7 @@ class InvitationTest extends TestCase
             'password_confirmation' => 'Secure-password123!',
             'terms' => '1',
             'privacy' => '1',
-        ])->assertRedirect(route('secure-access.setup'));
+        ])->assertRedirect(route('secure-access.register.role'));
         $this->assertSame('Staff Member', User::where('username', 'manual')->sole()->name);
         $this->assertSame(0, PendingRegistration::count());
     }
@@ -301,7 +307,7 @@ class InvitationTest extends TestCase
             'password_confirmation' => 'Secure-password123!',
             'terms' => '1',
             'privacy' => '1',
-        ])->assertRedirect(route('secure-access.setup'));
+        ])->assertRedirect(route('secure-access.register.role'));
         $user = User::where('username', 'legacy')->sole();
         $this->assertSame('Staff Member', $user->name);
         $this->assertNotNull($user->terms_accepted_at);
