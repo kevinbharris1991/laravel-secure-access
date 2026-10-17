@@ -85,6 +85,10 @@ Route::middleware(config('secure-access.routes.middleware', ['web']))
                 ->whereNumber('invitation')->middleware('throttle:secure-access')->name('team.invitations.decline');
             Route::delete('dashboard/team/relationships/{relationship}', [TeamController::class, 'destroy'])
                 ->whereNumber('relationship')->middleware('throttle:secure-access')->name('team.relationships.destroy');
+            Route::post('dashboard/team/relationships/{relationship}/authority-documents', [TeamController::class, 'storeAuthorityDocument'])
+                ->whereNumber('relationship')->middleware('throttle:secure-access')->name('team.authority-documents.store');
+            Route::get('dashboard/team/relationships/{relationship}/authority-documents/{document}', [TeamController::class, 'downloadAuthorityDocument'])
+                ->whereNumber('relationship')->whereNumber('document')->name('team.authority-documents.download');
             Route::get('access', [AccessManagementController::class, 'index'])->middleware(AuditAccessChanges::class)->name('access.index');
             Route::middleware(['throttle:secure-access', AuditAccessChanges::class])->prefix('access')->name('access.')->group(function () {
                 Route::post('groups', [AccessManagementController::class, 'storeGroup'])->name('groups.store');

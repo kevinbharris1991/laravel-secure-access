@@ -3,6 +3,7 @@
 namespace SecureAccess\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class TeamMember extends Model
 {
@@ -13,4 +14,9 @@ class TeamMember extends Model
         'team_member_id',
         'team_member_role',
     ];
+
+    public function authorityDocuments(): HasMany
+    {
+        return $this->hasMany(TeamAuthorityDocument::class, 'team_member_id');
+    }
 }

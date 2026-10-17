@@ -28,7 +28,7 @@ return new class extends Migration
             $table->string('team_member_id');
             $table->string('team_member_role');
             $table->timestamps();
-            $table->unique(['self_advocate_id', 'team_member_id']);
+            $table->unique(['self_advocate_id', 'team_member_id'], 'satm_advocate_member_unique');
             $table->index(['team_member_id', 'team_member_role']);
         });
     }
