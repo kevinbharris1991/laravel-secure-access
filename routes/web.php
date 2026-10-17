@@ -11,6 +11,7 @@ use SecureAccess\Http\Controllers\RegistrationController;
 use SecureAccess\Http\Controllers\SecurityController;
 use SecureAccess\Http\Controllers\SetupController;
 use SecureAccess\Http\Controllers\InvitationController;
+use SecureAccess\Http\Controllers\TeamController;
 use SecureAccess\Http\Controllers\AccessManagementController;
 use SecureAccess\Models\MfaMethod;
 use SecureAccess\Http\Middleware\AuditAccessChanges;
@@ -76,6 +77,14 @@ Route::middleware(config('secure-access.routes.middleware', ['web']))
             });
             Route::get('invitations', [InvitationController::class, 'index'])->name('invitations.index');
             Route::post('invitations', [InvitationController::class, 'store'])->middleware('throttle:secure-access')->name('invitations.store');
+            Route::get('dashboard/team', [TeamController::class, 'index'])->name('team.index');
+            Route::post('dashboard/team', [TeamController::class, 'store'])->middleware('throttle:secure-access')->name('team.store');
+            Route::post('dashboard/team/invitations/{invitation}/accept', [TeamController::class, 'accept'])
+                ->whereNumber('invitation')->middleware('throttle:secure-access')->name('team.invitations.accept');
+            Route::delete('dashboard/team/invitations/{invitation}', [TeamController::class, 'decline'])
+                ->whereNumber('invitation')->middleware('throttle:secure-access')->name('team.invitations.decline');
+            Route::delete('dashboard/team/relationships/{relationship}', [TeamController::class, 'destroy'])
+                ->whereNumber('relationship')->middleware('throttle:secure-access')->name('team.relationships.destroy');
             Route::get('access', [AccessManagementController::class, 'index'])->middleware(AuditAccessChanges::class)->name('access.index');
             Route::middleware(['throttle:secure-access', AuditAccessChanges::class])->prefix('access')->name('access.')->group(function () {
                 Route::post('groups', [AccessManagementController::class, 'storeGroup'])->name('groups.store');

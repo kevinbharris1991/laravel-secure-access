@@ -35,6 +35,14 @@
         @endcan
     @endif
 
+    @if ($canManageTeam)
+        <div class="sa-section">
+            <h2 class="sa-title">{{ __('Your team') }}</h2>
+            <p class="sa-text">{{ __('Invite and manage your loved ones, clients, or staff members.') }}</p>
+            <a class="sa-btn sa-mt-4" href="{{ route('secure-access.team.index') }}">{{ __('Manage your team') }}</a>
+        </div>
+    @endif
+
     @if ($campItems)
         <div class="sa-section">
             <h2 class="sa-title">{{ __('Your camp modules') }}</h2>
