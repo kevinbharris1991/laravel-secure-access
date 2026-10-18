@@ -59,6 +59,7 @@ class AuthorityDepartmentShareController extends Controller
         AuthorityReviewService $reviews
     ): Response {
         $user = $this->user();
+        $shares->synchronizeForRecipient($user, $department);
         abort_unless($shares->canAccessDepartment($user, $department), 403);
 
         $visible = AuthorityDepartmentShare::query()->where('department', $department)->where('status', 'published')

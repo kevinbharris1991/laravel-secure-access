@@ -84,6 +84,7 @@ Route::middleware(config('secure-access.routes.middleware', ['web']))
             });
             Route::get('invitations', [InvitationController::class, 'index'])->name('invitations.index');
             Route::post('invitations', [InvitationController::class, 'store'])->middleware('throttle:secure-access')->name('invitations.store');
+            require __DIR__.'/finance-actions.php';
             Route::get('dashboard/team', [TeamController::class, 'index'])->name('team.index');
             Route::post('dashboard/team', [TeamController::class, 'store'])->middleware('throttle:secure-access')->name('team.store');
             Route::post('dashboard/team/invitations/{invitation}/accept', [TeamController::class, 'accept'])

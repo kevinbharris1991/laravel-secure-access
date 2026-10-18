@@ -7,7 +7,6 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Routing\Controller;
-use SecureAccess\Authorization\RepresentativeAccess;
 use SecureAccess\Models\TeamAuthorityDocument;
 use SecureAccess\Models\AuthorityRevocationEvidence;
 use SecureAccess\Models\AuthorityDepartmentShare;
@@ -74,7 +73,7 @@ class AuthorityReviewController extends Controller
                 && in_array($document->review_decision, ['denied', 'inquired'], true)
                 && in_array($document->lifecycle_status, ['active', 'inactive'], true)
                 && ! TeamAuthorityDocument::query()->where('previous_document_id', $document->getKey())->exists(),
-            'capabilities' => app(RepresentativeAccess::class)->capabilities(),
+            'capabilities' => $reviews->capabilities(),
             'canViewHistory' => $canViewHistory,
             'history' => $canViewHistory ? ($document->review_history ?? []) : [],
             'revisions' => $canViewHistory ? TeamAuthorityDocument::query()

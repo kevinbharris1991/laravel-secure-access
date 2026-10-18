@@ -42,11 +42,15 @@ class AuthorityDepartmentShareService
     public function readableShare(Model $actor, AuthorityDepartmentShare $share, bool $synchronize = true): ?AuthorityDepartmentShare
     {
         // Never trust a cached relation or a previously issued delivery grant for authorization.
+        $share = AuthorityDepartmentShare::query()->with('document.relationship')->find($share->getKey());
+        if (! $share) {
+            return null;
+        }
         if ($synchronize) {
             $this->synchronize($share);
+            $share->refresh()->load('document.relationship');
         }
-        $share = AuthorityDepartmentShare::query()->with('document.relationship')->find($share->getKey());
-        if (! $share || ! $this->eligible($share) || ! $this->canAccessDepartment($actor, $share->department)) {
+        if (! $this->eligible($share) || ! $this->canAccessDepartment($actor, $share->department)) {
             return null;
         }
 
@@ -196,6 +200,13 @@ class AuthorityDepartmentShareService
     {
         TeamAuthorityDocument::query()->whereHas('relationship', fn ($query) => $query->where('self_advocate_id', $wardId))
             ->orderBy('id')->each(fn (TeamAuthorityDocument $document) => $this->synchronizeForDocument($document));
+    }
+
+    public function synchronizeForRecipient(Model $recipient, string $department): void
+    {
+        AuthorityDepartmentShare::query()->where('department', $department)
+            ->whereIn('id', DepartmentDisclosureGrant::query()->select('share_id')->where('recipient_id', (string) $recipient->getKey()))
+            ->orderBy('id')->each(fn (AuthorityDepartmentShare $share) => $this->synchronize($share));
     }
 
     public function synchronize(AuthorityDepartmentShare $share): void

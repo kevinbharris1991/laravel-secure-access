@@ -68,6 +68,7 @@
                 <p class="sa-text">{{ __('No audit events.') }}</p>
             @endforelse
         </section>
+        @include('secure-access::authority.financial-decision-history', ['decisions' => $financialDecisions ?? []])
     @endif
 
     @if ($canReview && in_array($document->lifecycle_status, ['active', 'inactive'], true) && $document->review_decision !== 'denied')

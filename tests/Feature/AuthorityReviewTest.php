@@ -217,6 +217,20 @@ class AuthorityReviewTest extends TestCase
         $this->assertSame([], app(RepresentativeAccess::class)->scopes($this->relationship));
     }
 
+    public function test_supporting_financial_decision_scopes_can_be_confirmed_without_creating_workspace_actions(): void
+    {
+        $document = $this->submit(['type' => 'power_of_attorney']);
+        $this->login($this->reviewer);
+        $scopes = ['financial_aid.revoke', 'financial_aid.reinstate', 'tuition.revoke', 'tuition.reinstate'];
+        $this->get(route('secure-access.authority.show', $document))->assertOk()
+            ->assertViewHas('capabilities', fn ($capabilities) => $capabilities['financial_application_decisions'] === $scopes);
+        $this->decision($document, 'confirm', ['approved_scopes' => $scopes])->assertRedirect();
+        $this->assertSame($scopes, $document->fresh()->approved_scopes);
+        $this->assertSame($scopes, $document->fresh()->review_history[0]['confirmed_capabilities']);
+        $this->assertSame([], app(RepresentativeAccess::class)->scopes($this->relationship));
+        $this->assertArrayNotHasKey('financial_application_decisions', RepresentativeAccess::capabilities());
+    }
+
     public function test_date_only_authority_is_inclusive_through_the_configured_timezone_end_date(): void
     {
         $previousTimezone = date_default_timezone_get();

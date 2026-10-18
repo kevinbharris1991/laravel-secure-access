@@ -258,8 +258,16 @@ class CampController extends Controller
 
     protected function authorizeAction(string $module, string $action, ?CampRecord $record = null): string
     {
-        $permission = Modules::permission(SecureAccess::guard()->user(), $module, $action, $record);
+        $user = SecureAccess::guard()->user();
+        $permission = Modules::permission($user, $module, $action, $record);
         abort_unless($permission, 403);
+        if ($module === 'grant_applications' && in_array($action, ['create', 'update', 'submit'], true)
+            && (! $record || $action === 'create' || $record->isOwnedBy($user))) {
+            $wardId = $record?->owner_id ?? (string) $user->getAuthIdentifier();
+            SecureAccess::newUserQuery()->whereKey($wardId)->lockForUpdate()->firstOrFail();
+            abort_unless(app(\SecureAccess\Services\FinancialApplicationPermissionService::class)
+                ->allowsApplications((string) $wardId), 403);
+        }
 
         return $permission;
     }

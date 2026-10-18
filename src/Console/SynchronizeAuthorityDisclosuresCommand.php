@@ -5,6 +5,7 @@ namespace SecureAccess\Console;
 use Illuminate\Console\Command;
 use SecureAccess\Models\TeamAuthorityDocument;
 use SecureAccess\Services\AuthorityDepartmentShareService;
+use SecureAccess\Services\FinancialApplicationPermissionService;
 
 class SynchronizeAuthorityDisclosuresCommand extends Command
 {
@@ -19,6 +20,7 @@ class SynchronizeAuthorityDisclosuresCommand extends Command
                 $shares->synchronizeForDocument($document);
             }
         });
+        app(FinancialApplicationPermissionService::class)->synchronizePending();
 
         return self::SUCCESS;
     }

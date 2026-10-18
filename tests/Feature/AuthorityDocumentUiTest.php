@@ -58,6 +58,7 @@ class AuthorityDocumentUiTest extends TestCase
             ->assertSee('Review and lifecycle history')
             ->assertSee('Revision history')
             ->assertSee('Audit history')
+            ->assertSee('Financial application permission decision history')
             ->assertSee('Rev1')
             ->assertSee('Reviewer account #12345')
             ->assertSee('Capabilities confirmed in this review')
@@ -87,9 +88,38 @@ class AuthorityDocumentUiTest extends TestCase
             ->assertDontSee('Review and lifecycle history')
             ->assertDontSee('Revision history')
             ->assertDontSee('Audit history')
+            ->assertDontSee('Financial application permission decision history')
             ->assertDontSee('name="decision"', false)
             ->assertDontSee('name="lifecycle_status"', false)
             ->assertSee('Download original evidence')
             ->assertSee('Submit termination evidence for review');
+    }
+
+    public function test_financial_action_view_renders_only_sanitized_disclosure_and_capability_forms(): void
+    {
+        $html = view('secure-access::authority.finance-actions', [
+            'share' => (object) [
+                'id' => 123, 'department' => 'finance-accounting', 'revision' => 3,
+                'summary' => '<script>private summary</script>', 'limitations' => 'Billing limitations only',
+            ],
+            'availableCapabilities' => ['financial_aid.revoke', 'tuition.reinstate'],
+            'decisions' => [[
+                'target' => 'financial_aid', 'action' => 'revoke', 'basis' => 'Financial decision basis',
+                'reason' => 'Recorded financial reason', 'reviewer_name' => 'Assigned Officer',
+                'reviewed_at' => '2026-10-18 12:00:00', 'effective_at' => '2026-10-19',
+            ]],
+            'errors' => new \Illuminate\Support\ViewErrorBag,
+        ])->render();
+
+        $this->assertStringContainsString('&lt;script&gt;private summary&lt;/script&gt;', $html);
+        $this->assertStringNotContainsString('<script>private summary</script>', $html);
+        $this->assertStringContainsString('name="share_revision" value="3"', $html);
+        $this->assertStringContainsString('name="target" value="financial_aid"', $html);
+        $this->assertStringContainsString('name="action" value="reinstate"', $html);
+        $this->assertStringContainsString('Assigned Officer', $html);
+        $this->assertStringContainsString('Financial decision basis', $html);
+        $this->assertStringContainsString('Recorded financial reason', $html);
+        $this->assertStringNotContainsString('Download original evidence', $html);
+        $this->assertStringNotContainsString('dashboard/authority/', $html);
     }
 }

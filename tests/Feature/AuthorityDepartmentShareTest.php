@@ -159,6 +159,7 @@ class AuthorityDepartmentShareTest extends TestCase
             'summary' => 'Published summary', 'limitations' => 'Limited', 'status' => 'published',
         ])->assertRedirect();
         $this->assertSame($revision, $share->fresh()->revision);
+        $this->assertSame(1, AuthorityDocumentAudit::where('action', 'department_share_published')->count());
         $service = app(AuthorityDepartmentShareService::class);
         $service->synchronizeForDocument($this->document);
         $service->synchronizeForWard((string) $this->adult->id);
@@ -308,6 +309,31 @@ class AuthorityDepartmentShareTest extends TestCase
         $this->document->forceFill(['expires_at' => now()->subDay()])->save();
         $this->deliver();
         Notification::assertNothingSent();
+    }
+
+    public function test_request_time_expiry_removes_access_with_one_audit_and_reavailability_notifies_once_again(): void
+    {
+        $this->assignNurse();
+        $share = $this->createShare();
+        $this->deliver();
+        Notification::assertCount(1);
+        $this->document->forceFill(['expires_at' => now()->subSecond()])->save();
+        $this->login($this->nurse);
+        $this->get(route('secure-access.authority.shares.show', $share))->assertNotFound();
+        $this->get(route('secure-access.authority.shares.show', $share))->assertNotFound();
+        $this->assertFalse(DepartmentDisclosureGrant::sole()->active);
+        $this->assertSame(1, AuthorityDocumentAudit::where('action', 'department_disclosure_access_removed')->count());
+        $removed = AuthorityDocumentAudit::where('action', 'department_disclosure_access_removed')->sole();
+        $this->assertSame(DepartmentDisclosureGrant::sole()->id, $removed->metadata['grant_id']);
+        $this->document->forceFill(['expires_at' => null])->save();
+        $this->get(route('secure-access.authority.shares.show', $share))->assertOk();
+        $this->deliver();
+        $this->deliver();
+        Notification::assertCount(2);
+        $this->assertSame(1, DepartmentDisclosureGrant::count());
+        $this->assertSame(1, AuthorityDocumentAudit::where('action', 'department_disclosure_access_restored')->count());
+        $this->assertSame(2, AuthorityDocumentAudit::where('action', 'department_disclosure_delivery_requested')->count());
+        $this->assertSame(2, AuthorityDocumentAudit::where('action', 'department_disclosure_notified')->count());
     }
 
     public function test_removal_is_audited_retains_redacted_file_and_cancels_pending_notification(): void

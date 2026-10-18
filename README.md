@@ -782,6 +782,28 @@ original evidence nor review comments nor another department's disclosure is
 available through a departmental dashboard. Notifications contain no authority
 summary, limitations, original filenames, or document details.
 
+Assigned financial staff can open **Financial aid and tuition application permissions**
+from an authorized financial disclosure. Only explicitly available application
+capabilities (`financial_aid.revoke/reinstate`, `tuition.revoke/reinstate`) confirmed
+on the source document are offered. Each permission revocation/reinstatement records
+its target, basis, reason, effective date, reviewer identity, and review timestamp.
+Authorized independent Administrative Directors can read the same records on the
+original authority page, but cannot execute these actions unless also the currently
+assigned finance officer with the required disclosure and capabilities.
+
+These decisions affect guest permission to apply for financial aid or tuition, not
+an existing application's status. Because the application currently has one
+`grant_applications` module for both purposes, either current restriction
+conservatively blocks application **create, update, and submit** operations in that
+module. Reinstatement removes only the corresponding source-bound restriction; it
+never grants unrelated ACL permissions or overrides another effective restriction.
+Future decisions remain pending until their effective dates and fresh eligibility
+checks. Source document, disclosure, revision, status, or assignment changes can
+invalidate an override. These actions do not revoke legal authority, alter document
+review/lifecycle, or end a team relationship. Finance and nursing staff never gain
+access to original authority files or internal reviewer notes. Current disclosure
+revision and assignment authorization are checked again when recording a decision.
+
 ### Disclosure delivery operations
 
 The package registers `secure-access:sync-authority-disclosures`. Schedule it in the

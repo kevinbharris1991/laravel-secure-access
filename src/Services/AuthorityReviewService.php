@@ -20,6 +20,15 @@ use SecureAccess\SecureAccess;
 
 class AuthorityReviewService
 {
+    public function capabilities(): array
+    {
+        return array_merge(RepresentativeAccess::capabilities(), [
+            'financial_application_decisions' => [
+                'financial_aid.revoke', 'financial_aid.reinstate', 'tuition.revoke', 'tuition.reinstate',
+            ],
+        ]);
+    }
+
     public function isReviewer(Model $user): bool
     {
         return $this->isAdministrativeDirector($user)
@@ -156,7 +165,7 @@ class AuthorityReviewService
             }
             $updates = [];
             if ($decision === 'confirmed') {
-                $allowed = array_merge([], ...array_values(app(RepresentativeAccess::class)->capabilities()));
+                $allowed = array_merge([], ...array_values($this->capabilities()));
                 $scopes = array_values(array_unique($data['approved_scopes'] ?? []));
                 if (! $scopes || array_diff($scopes, $allowed)) {
                     throw ValidationException::withMessages(['approved_scopes' => __('Select valid capabilities.')]);

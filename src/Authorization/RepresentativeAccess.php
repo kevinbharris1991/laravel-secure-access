@@ -82,6 +82,12 @@ class RepresentativeAccess
         abort_unless(in_array($capability, array_merge(...array_values(self::capabilities())), true), 403);
 
         return DB::transaction(function () use ($actor, $relationship, $capability, $callback) {
+            if (in_array($capability, ['grant_applications.create', 'grant_applications.update', 'grant_applications.submit'], true)) {
+                $relationship = $this->relationships($actor)->whereKey($relationship->getKey())->firstOrFail();
+                SecureAccess::newUserQuery()->whereKey($relationship->self_advocate_id)->lockForUpdate()->firstOrFail();
+                abort_unless(app(\SecureAccess\Services\FinancialApplicationPermissionService::class)
+                    ->allowsApplications($relationship->self_advocate_id), 403);
+            }
             $relationship = $this->relationships($actor)->whereKey($relationship->getKey())->lockForUpdate()->firstOrFail();
             $document = $this->grants($relationship)->lockForUpdate()->get()
                 ->first(fn ($document) => in_array($capability, $document->approved_scopes ?? [], true));

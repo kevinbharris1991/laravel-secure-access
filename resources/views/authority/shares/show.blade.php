@@ -15,5 +15,8 @@
         <p class="sa-text">{{ __('Disclosure expiration date') }}: {{ $share->expires_at?->toDateString() ?? __('No expiry') }}</p>
         <p class="sa-text">{{ __('Authority effective') }}: {{ $share->document->effective_at?->toDateTimeString() ?? __('Not specified') }} — {{ __('Authority expires') }}: {{ $share->document->expires_at?->toDateTimeString() ?? __('No expiry') }}</p>
         <a class="sa-link" href="{{ route('secure-access.authority.shares.download', $share) }}">{{ __('Download published redacted PDF') }}</a>
+        @if ($share->department === 'finance-accounting')
+            <p><a class="sa-link" href="{{ route('secure-access.finance-actions.show', $share) }}">{{ __('Financial aid and tuition application permissions') }}</a></p>
+        @endif
     </section>
 @endsection
