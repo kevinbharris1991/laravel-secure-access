@@ -7,8 +7,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use SecureAccess\Authorization\AccessControl;
-use SecureAccess\Models\TeamMember;
 use SecureAccess\Models\DepartmentAssignment;
+use SecureAccess\Models\TeamMember;
 use SecureAccess\SecureAccess;
 
 class NurseTeamService
@@ -60,7 +60,12 @@ class NurseTeamService
                 ->where('team_member_id', $nurseId)->lockForUpdate()->first();
             if ($relationship && $relationship->ended_at === null
                 && $relationship->nurse_assigned_by === (string) $actor->getKey()) {
+                $current = DepartmentAssignment::query()->where('ward_id', $adultId)
+                    ->where('department', 'medical-nursing')->value('assignee_id');
                 app(DepartmentAssignmentService::class)->assign($actor, $adultId, 'medical-nursing', $nurseId);
+                if ($current !== $nurseId) {
+                    $this->audit($actor, $relationship, 'assigned');
+                }
                 return $relationship;
             }
             if (! $relationship) {
@@ -77,7 +82,7 @@ class NurseTeamService
             app(DepartmentAssignmentService::class)->assign($actor, $adultId, 'medical-nursing', $nurseId);
 
             return $relationship;
-        });
+        }, 3);
     }
 
     public function remove(Model $actor, TeamMember $relationship): void
@@ -100,7 +105,7 @@ class NurseTeamService
             if ($assignment) {
                 app(DepartmentAssignmentService::class)->remove($actor, $assignment);
             }
-        });
+        }, 3);
     }
 
     private function lockMembership(Model $user, string $group): void

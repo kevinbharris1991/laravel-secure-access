@@ -183,6 +183,7 @@ class NurseTeamTest extends TestCase
             'team_member_id' => $relationship->id, 'type' => 'power_of_attorney',
             'path' => 'authority/retained.pdf', 'file_name' => 'retained.pdf',
             'status' => 'approved', 'submitted_by' => (string) $nurse->id,
+            'review_decision' => 'confirmed', 'lifecycle_status' => 'active',
             'approved_scopes' => ['health_profiles.read'], 'effective_at' => now()->subDay(),
         ]);
         $this->login($director);
@@ -190,7 +191,9 @@ class NurseTeamTest extends TestCase
         $this->assertNotNull($relationship->refresh()->ended_at);
         $this->assertSame((string) $director->id, $relationship->nurse_assigned_by);
         $this->assertSame('suspended', $document->refresh()->status);
-        $this->assertSame('relationship_ended', $document->termination_basis);
+        $this->assertSame('suspended', $document->lifecycle_status);
+        $this->assertSame('confirmed', $document->review_decision);
+        $this->assertNull($document->termination_basis);
         Storage::disk('local')->assertExists('authority/retained.pdf');
         $this->assertDatabaseHas('secure_access_authority_document_audits', [
             'team_member_id' => $relationship->id, 'actor_id' => (string) $director->id,

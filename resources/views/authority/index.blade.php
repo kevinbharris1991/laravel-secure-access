@@ -15,11 +15,19 @@
         {{ $evidenceQueue->links() }}
     </section>
     <form method="GET" action="{{ route('secure-access.authority.index') }}">
-        <label class="sa-label" for="authority-status">{{ __('Status') }}</label>
+        <label class="sa-label" for="authority-status">{{ __('Filter by review decision or lifecycle') }}</label>
         <select class="sa-input" id="authority-status" name="status">
-            @foreach (array_merge(['all'], \SecureAccess\Models\TeamAuthorityDocument::STATUSES) as $filter)
-                <option value="{{ $filter }}" @selected($status === $filter)>{{ $filter === 'revoked' ? __('Verified termination recorded') : ($filter === 'suspended' ? __('Website access suspended') : __(ucwords(str_replace('_', ' ', $filter)))) }}</option>
-            @endforeach
+            <option value="all" @selected($status === 'all')>{{ __('All documents') }}</option>
+            <optgroup label="{{ __('Review decision') }}">
+                @foreach (\SecureAccess\Models\TeamAuthorityDocument::REVIEW_DECISIONS as $filter)
+                    <option value="{{ $filter }}" @selected($status === $filter)>{{ __(ucfirst($filter)) }}</option>
+                @endforeach
+            </optgroup>
+            <optgroup label="{{ __('Lifecycle status') }}">
+                @foreach (\SecureAccess\Models\TeamAuthorityDocument::LIFECYCLE_STATUSES as $filter)
+                    <option value="{{ $filter }}" @selected($status === $filter)>{{ $filter === 'revoked' ? __('Verified termination recorded') : ($filter === 'suspended' ? __('Website access suspended') : __(ucfirst($filter))) }}</option>
+                @endforeach
+            </optgroup>
         </select>
         <button class="sa-btn" type="submit">{{ __('Filter') }}</button>
     </form>
@@ -33,7 +41,7 @@
                 — {{ __('Lifecycle') }}: {{ __(ucfirst($document->lifecycle_status)) }}
             </p>
         @empty
-            <p class="sa-text">{{ __('No documents match this status.') }}</p>
+            <p class="sa-text">{{ __('No documents match this filter.') }}</p>
         @endforelse
         {{ $documents->links() }}
     </section>

@@ -210,6 +210,22 @@ class TeamAuthorityDocumentTest extends TestCase
         $this->assertStringNotContainsString('\\', $document->path);
     }
 
+    public function test_identical_names_do_not_collide_between_wards(): void
+    {
+        $representative = $this->teamUser('agent', 'professional');
+        $documents = [];
+        foreach ([1, 2] as $number) {
+            $ward = $this->createUser(['username' => 'ward-'.$number,
+                'email' => 'ward-'.$number.'@example.com', 'name' => 'Jordan Doe']);
+            $documents[] = app(\SecureAccess\Services\AuthorityReviewService::class)->submit(
+                $representative, $this->relationship($representative, $ward), ['type' => 'guardianship'], $this->pdf()
+            );
+        }
+        $this->assertSame($documents[0]->file_name, $documents[1]->file_name);
+        $this->assertNotSame($documents[0]->path, $documents[1]->path);
+        $this->assertCount(2, app(\SecureAccess\Services\AuthorityOriginalStorage::class)->disk()->allFiles());
+    }
+
     public function test_mismatched_extension_and_oversize_originals_are_rejected(): void
     {
         $representative = $this->teamUser('agent', 'professional');
@@ -236,5 +252,66 @@ class TeamAuthorityDocumentTest extends TestCase
         } catch (\RuntimeException $exception) {
             $this->assertSame($bytes, $storage->disk()->get($path));
         }
+    }
+
+    public function test_upgrade_migrates_legacy_originals_without_modifying_their_contents(): void
+    {
+        Storage::fake('local');
+        $representative = $this->teamUser('agent', 'professional');
+        $ward = $this->createUser(['username' => 'ward', 'email' => 'ward@example.com']);
+        $relationship = $this->relationship($representative, $ward);
+        $legacyPath = $this->pdf()->store('secure-access/authority-documents', 'local');
+        $bytes = Storage::disk('local')->get($legacyPath);
+        $document = TeamAuthorityDocument::create([
+            'team_member_id' => $relationship->id, 'type' => 'guardianship',
+            'path' => $legacyPath, 'file_name' => 'original.pdf',
+        ]);
+        $migration = require __DIR__.'/../../database/migrations/2024_01_01_000020_add_authority_original_revisions.php';
+        $migration->up();
+        $migration->up();
+        $document->refresh();
+        $this->assertSame(1, $document->revision);
+        $this->assertSame((string) $ward->id, $document->ward_id);
+        $this->assertSame($bytes, app(\SecureAccess\Services\AuthorityOriginalStorage::class)->disk()->get($document->path));
+        $this->assertSame($bytes, Storage::disk('local')->get($legacyPath));
+        $this->assertSame(1, $document->audits()->where('action', 'original_migrated')->count());
+    }
+
+    public function test_inactive_denied_documents_can_be_resubmitted_as_a_new_revision(): void
+    {
+        $representative = $this->teamUser('agent', 'professional');
+        $ward = $this->createUser(['username' => 'ward', 'email' => 'ward@example.com']);
+        $relationship = $this->relationship($representative, $ward);
+        $service = app(\SecureAccess\Services\AuthorityReviewService::class);
+        $original = $service->submit($representative, $relationship, ['type' => 'guardianship'], $this->pdf());
+        $original->forceFill(['review_decision' => 'denied', 'lifecycle_status' => 'inactive', 'status' => 'inactive'])->save();
+        $replacement = $service->submit($representative, $relationship, [
+            'type' => 'guardianship', 'previous_document_id' => $original->id,
+        ], $this->pdf());
+        $this->assertSame(2, $replacement->revision);
+        $this->assertSame($original->id, $replacement->previous_document_id);
+        $this->assertSame('denied', $original->fresh()->review_decision);
+    }
+
+    public function test_upgrade_processes_more_than_one_chunk_of_legacy_originals(): void
+    {
+        Storage::fake('local');
+        $representative = $this->teamUser('agent', 'professional');
+        $ward = $this->createUser(['username' => 'ward', 'email' => 'ward@example.com']);
+        $relationship = $this->relationship($representative, $ward);
+        $legacyPath = $this->pdf()->store('secure-access/authority-documents', 'local');
+        $rows = array_fill(0, 1001, [
+            'team_member_id' => $relationship->id, 'type' => 'guardianship',
+            'path' => $legacyPath, 'file_name' => 'original.pdf',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        foreach (array_chunk($rows, 100) as $chunk) {
+            \Illuminate\Support\Facades\DB::table('secure_access_team_authority_documents')->insert($chunk);
+        }
+        $migration = require __DIR__.'/../../database/migrations/2024_01_01_000020_add_authority_original_revisions.php';
+        $migration->up();
+        $this->assertSame(0, TeamAuthorityDocument::whereNull('revision')->count());
+        $this->assertSame(1001, TeamAuthorityDocument::max('revision'));
+        $this->assertCount(1001, app(\SecureAccess\Services\AuthorityOriginalStorage::class)->disk()->allFiles());
     }
 }

@@ -10,6 +10,7 @@ use Illuminate\Routing\Controller;
 use SecureAccess\Authorization\RepresentativeAccess;
 use SecureAccess\Models\TeamAuthorityDocument;
 use SecureAccess\Models\AuthorityRevocationEvidence;
+use SecureAccess\Models\AuthorityDepartmentShare;
 use SecureAccess\SecureAccess;
 use SecureAccess\Services\AuthorityReviewService;
 use SecureAccess\Services\AuthorityDepartmentShareService;
@@ -59,23 +60,36 @@ class AuthorityReviewController extends Controller
         foreach ($document->revocationEvidence as $evidence) {
             $reviews->audit($document, $user, 'revocation_evidence_viewed', ['evidence_id' => $evidence->getKey()]);
         }
+        $canViewHistory = $reviews->canReview($user, $document);
+        $canShare = $shares->canShare($user, $document);
 
         return response()->view('secure-access::authority.show', [
             'document' => $document,
             'canReview' => $reviews->canReview($user, $document) && $document->relationship->ended_at === null,
-            'canShare' => $shares->canShare($user, $document),
+            'canShare' => $canShare,
+            'departmentShares' => $canShare ? AuthorityDepartmentShare::query()
+                ->where('document_id', $document->getKey())->latest()->get() : collect(),
             'canResubmit' => $document->relationship->ended_at === null
                 && $document->relationship->team_member_id === (string) $user->getKey()
                 && in_array($document->review_decision, ['denied', 'inquired'], true)
+                && in_array($document->lifecycle_status, ['active', 'inactive'], true)
                 && ! TeamAuthorityDocument::query()->where('previous_document_id', $document->getKey())->exists(),
             'capabilities' => app(RepresentativeAccess::class)->capabilities(),
-            'history' => $document->review_history ?? [],
+            'canViewHistory' => $canViewHistory,
+            'history' => $canViewHistory ? ($document->review_history ?? []) : [],
+            'revisions' => $canViewHistory ? TeamAuthorityDocument::query()
+                ->where('ward_id', $document->ward_id ?? $document->relationship->self_advocate_id)->where('type', $document->type)
+                ->orderByDesc('revision')->get() : collect(),
+            'audits' => $canViewHistory ? $document->audits()->latest()->get() : collect(),
         ])->header('Cache-Control', 'private, no-store')
             ->header('X-Content-Type-Options', 'nosniff');
     }
 
     public function update(Request $request, TeamAuthorityDocument $document, AuthorityReviewService $reviews): RedirectResponse
     {
+        if ($request->has('lifecycle_status')) {
+            return $this->lifecycle($request, $document, $reviews);
+        }
         $user = $this->user();
         abort_unless($reviews->canReview($user, $document), 403);
         $reviews->review($user, $document, $request->all());

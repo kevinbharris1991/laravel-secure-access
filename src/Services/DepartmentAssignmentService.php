@@ -52,6 +52,7 @@ class DepartmentAssignmentService
             }
             $assignment = DepartmentAssignment::query()->where('ward_id', $wardId)->where('department', $department)->lockForUpdate()->first();
             if ($assignment && $assignment->assignee_id === $officerId) {
+                app(AuthorityDepartmentShareService::class)->synchronizeForWard($wardId);
                 return $assignment;
             }
             $previous = $assignment?->assignee_id;

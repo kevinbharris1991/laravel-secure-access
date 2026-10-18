@@ -36,8 +36,8 @@ class DeliverAuthorityDepartmentDisclosure implements ShouldQueue
             $recipient = SecureAccess::newUserQuery()->whereKey($grant->recipient_id)->first();
             if (! $share || ! $assignment || ! $recipient || $assignment->version !== $grant->assignment_version
                 || $assignment->assignee_id !== $grant->recipient_id || $share->revision !== $grant->share_revision
-                || ! $shares->canRead($recipient, $share)) {
-                $grant->forceFill(['active' => false])->save();
+                || ! $shares->canRead($recipient, $share, false)) {
+                $shares->revokeGrant($grant, $share);
 
                 return;
             }
@@ -47,6 +47,7 @@ class DeliverAuthorityDepartmentDisclosure implements ShouldQueue
             }
             Notification::route('mail', $email)->notify(new AuthorityDepartmentShareNotification($share->department));
             $grant->forceFill(['notified_at' => now()])->save();
+            $shares->auditGrant($share, $grant, 'department_disclosure_notified');
         });
     }
 }

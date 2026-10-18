@@ -34,8 +34,8 @@
         <h2 class="sa-title">{{ __('Current financial assignments') }}</h2>
         @forelse ($assignments as $assignment)
             <div class="sa-option">
-                <p class="sa-text">{{ __('Self-advocate') }} #{{ $assignment->ward_id }} {{ $adults->firstWhere('id', $assignment->ward_id)['name'] ?? '' }} —
-                    {{ __('Financial staff') }} #{{ $assignment->assignee_id }} {{ $officers->firstWhere('id', $assignment->assignee_id)['name'] ?? '' }}</p>
+                <p class="sa-text">{{ __('Self-advocate') }} #{{ $assignment->ward_id }} {{ collect($adults)->firstWhere('id', $assignment->ward_id)['name'] ?? '' }} —
+                    {{ __('Financial staff') }} #{{ $assignment->assignee_id }} {{ collect($officers)->firstWhere('id', $assignment->assignee_id)['name'] ?? '' }}</p>
                 <form method="POST" action="{{ route('secure-access.finance.destroy', $assignment) }}">
                     @csrf
                     @method('DELETE')

@@ -71,7 +71,8 @@ class AuthorityReviewService
                 $previous = null;
                 $latest = $relationship->authorityDocuments()->where('type', $data['type'])->latest('id')->lockForUpdate()->first();
                 if (empty($data['previous_document_id']) && $latest
-                    && in_array($latest->status, ['rejected', 'needs_information'], true)) {
+                    && in_array($latest->review_decision, ['denied', 'inquired'], true)
+                    && in_array($latest->lifecycle_status, ['active', 'inactive'], true)) {
                     throw ValidationException::withMessages([
                         'previous_document_id' => __('Resubmit the reviewed document as a new version.'),
                     ]);
@@ -80,7 +81,8 @@ class AuthorityReviewService
                     $previous = TeamAuthorityDocument::query()->whereKey($data['previous_document_id'])->lockForUpdate()->first();
                     if (! $previous || (string) $previous->team_member_id !== (string) $relationship->getKey()
                         || $previous->type !== $data['type']
-                        || ! in_array($previous->status, ['rejected', 'needs_information'], true)
+                        || ! in_array($previous->review_decision, ['denied', 'inquired'], true)
+                        || ! in_array($previous->lifecycle_status, ['active', 'inactive'], true)
                         || TeamAuthorityDocument::query()->where('previous_document_id', $previous->getKey())->exists()) {
                         throw ValidationException::withMessages(['previous_document_id' => __('Select an eligible document to resubmit.')]);
                     }
@@ -330,6 +332,7 @@ class AuthorityReviewService
                 'team_member_id' => $relationship->getKey(), 'actor_id' => (string) $user->getKey(),
                 'action' => 'relationship_ended', 'metadata' => [],
             ]);
+            app(AuthorityDepartmentShareService::class)->synchronizeForWard((string) $relationship->self_advocate_id);
         });
     }
 
@@ -338,7 +341,10 @@ class AuthorityReviewService
         AuthorityDocumentAudit::query()->create([
             'document_id' => $document->getKey(), 'team_member_id' => $document->team_member_id,
             'actor_id' => $actor ? (string) $actor->getKey() : null, 'action' => $action,
-            'metadata' => array_intersect_key($metadata, array_flip(['from_status', 'to_status', 'evidence_id', 'share_id', 'department'])),
+            'metadata' => array_intersect_key($metadata, array_flip([
+                'from_status', 'to_status', 'evidence_id', 'share_id', 'department',
+                'grant_id', 'assignment_id', 'recipient_id', 'assignment_version', 'share_revision',
+            ])),
         ]);
     }
 }

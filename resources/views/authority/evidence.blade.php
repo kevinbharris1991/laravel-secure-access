@@ -20,7 +20,7 @@
         @endif
         @if ($canViewHistory ?? false)
             <h3 class="sa-title">{{ __('Evidence review history') }}</h3>
-            @forelse ($evidence->review_history ?? [] as $review)
+            @forelse ($history ?? [] as $review)
                 <p class="sa-text">{{ __(ucwords(str_replace('_', ' ', $review['decision']))) }} — {{ $review['reviewed_at'] }}</p>
                 <p class="sa-text" style="white-space: pre-wrap">{{ $review['comments'] }}</p>
             @empty

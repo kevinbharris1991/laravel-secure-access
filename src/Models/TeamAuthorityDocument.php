@@ -17,6 +17,8 @@ class TeamAuthorityDocument extends Model
 
     protected $fillable = [
         'team_member_id',
+        'ward_id',
+        'revision',
         'type',
         'path',
         'file_name',
@@ -39,12 +41,25 @@ class TeamAuthorityDocument extends Model
     protected $hidden = ['path', 'review_history'];
 
     protected $casts = [
+        'revision' => 'integer',
         'approved_scopes' => 'array',
         'effective_at' => 'datetime',
         'expires_at' => 'datetime',
         'reviewed_at' => 'datetime',
         'review_history' => 'encrypted:array',
     ];
+
+    protected static function booted(): void
+    {
+        static::updating(function (self $document): void {
+            if ($document->isDirty([
+                'team_member_id', 'ward_id', 'type', 'revision', 'path', 'file_name',
+                'submitted_by', 'previous_document_id',
+            ])) {
+                throw new \LogicException('Original authority document metadata is immutable.');
+            }
+        });
+    }
 
     public function relationship(): BelongsTo
     {

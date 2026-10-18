@@ -663,8 +663,21 @@ assignments and publication state, and remove Executive Director authority-revie
 grants. Existing approved/rejected/needs-information reviews map to
 confirmed/denied/inquired; historical disabled records remain unconfirmed unless
 independently reviewed. Legacy departmental copies become private drafts and must
-be explicitly published. Existing invitations and original files remain in place.
+be explicitly published. Existing invitations remain in place.
 If views were published, merge the updated package views into your overrides.
+
+**Original-file migration (000020):** put the host application into maintenance
+mode and stop queue workers/scheduler execution before running migrations. Take
+coordinated database and private-storage backups first. This migration copies
+existing originals unchanged into the new private root, assigns sequential
+ward/type revisions in document-ID order, and updates stored paths and filenames.
+Old source copies remain private for backup/manual retention; do not expose or
+delete them without your retention policy. A missing original fails migration:
+restore the source file before rerunning. Reruns recognize destination files with
+identical hashes. This relocation is not reversibly rolled back by migrations;
+restore the coordinated database **and** storage backup if rollback is required.
+Verify originals can be downloaded through authorized routes before leaving
+maintenance mode and restarting workers/scheduler execution.
 
 The dashboard **Messages** button opens an optional, keyboard-accessible overlay
 with a full-page alternative. Conversations have explicitly selected participants
@@ -691,6 +704,10 @@ make it acceptable. New originals are private under `storage/authority-documents
 in ward/type directories, with filenames
 `YYYY-MM-DD - Last & Last - Type - RevN.ext`. Revision numbers preserve prior files.
 Treat directory names and filenames as sensitive personal information.
+Names use the host model's `last_name` attribute when available; otherwise the last
+word of its composite `name` is used. The package normally stores only a composite
+name, so compound surnames may require the host to provide an accurate `last_name`
+attribute for the desired filename.
 
 Only members of the exact **Administrative Director** group with the live review
 permission can use **Authority document review**; Executive Director membership
@@ -699,6 +716,10 @@ relationship in which they are either party. Review decisions are **Confirm**,
 **Deny**, and **Inquire** (request information), each requiring a reason.
 Independently, lifecycle changes are **Active**, **Inactive**, or **Superseded**,
 also requiring a reason. A lifecycle change never silently confirms a document.
+New submissions are pending and active, but grant no access until confirmed.
+Review decisions never change lifecycle status: confirming an inactive document
+does not reactivate it. An unresolved inquiry removes access until a subsequent
+confirmation, which still requires an active lifecycle and valid dates for access.
 Review, revision, and metadata-only audit history are restricted to appropriate
 independent reviewers, not disclosed to ordinary team or departmental staff.
 Confirmation records a website review; it does **not establish legal authority**.
@@ -745,7 +766,9 @@ effective/expiration dates and a separately uploaded **redacted PDF** (maximum
 10 MiB; matching PDF MIME type and extension required). Saving a draft does not
 publish it or notify anyone. Publication is an explicit action; original evidence
 is never modified or disclosed. Review draft contents and redaction carefully
-before publication.
+before publication. Publishing requires confirmed, active source authority and a
+live website relationship. Future authority/disclosure effective dates are allowed,
+but recipient reading and delivery remain blocked until those dates are effective.
 
 Departmental access is individual and assignment-scoped, not department-wide:
 the currently assigned nurse or financial staff member uses their own
@@ -786,6 +809,18 @@ and retry failures after fixing the cause. Use
 Delivery jobs recheck current publication, revision, assignment and authority before
 granting access or notifying a recipient. Repeated synchronization is idempotent;
 stale queued deliveries must not recreate access for replaced assignments or drafts.
+Identical saves of an already published disclosure do not create a new revision,
+reset its publication timestamp, or notify again. During continuous eligibility,
+delivery records deduplicate notifications for the current disclosure revision and
+assignment generation. Observed eligibility loss deactivates and audits the grant;
+if eligibility later returns, one fresh availability notification is allowed before
+subsequent synchronization deduplicates again. Pending notifications are retried by
+scheduled synchronization after enqueue failures.
+
+Email delivery is **not absolutely exactly-once**: SMTP acceptance and database
+notification tracking are not one distributed transaction. A crash after SMTP
+acceptance but before the notification marker commits can cause a duplicate on
+retry. Strict exactly-once delivery requires an idempotent external mail provider.
 Missed scheduler/worker execution may delay delivery, but never extends an expired
 recipient's authorization: reads and downloads always perform live checks.
 

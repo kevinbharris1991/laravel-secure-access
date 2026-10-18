@@ -97,6 +97,7 @@ class AuthorityRevisionConcurrencyTest extends TestCase
         foreach ($workers as [$pid, , $userId]) {
             pcntl_waitpid($pid, $status);
             $errorPath = $this->databasePath.'.worker-'.$userId;
+            $this->assertTrue(pcntl_wifexited($status), 'Upload worker did not exit normally.');
             $this->assertSame(0, pcntl_wexitstatus($status), is_file($errorPath) ? file_get_contents($errorPath) : 'Upload worker failed.');
         }
         DB::purge();

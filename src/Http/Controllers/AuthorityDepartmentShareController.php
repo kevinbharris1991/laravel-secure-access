@@ -8,9 +8,10 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Routing\Controller;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\Storage;
 use SecureAccess\Models\AuthorityDepartmentShare;
+use SecureAccess\Models\DepartmentAssignment;
 use SecureAccess\Models\TeamAuthorityDocument;
 use SecureAccess\SecureAccess;
 use SecureAccess\Services\AuthorityDepartmentShareService;
@@ -21,8 +22,7 @@ class AuthorityDepartmentShareController extends Controller
     public function store(
         Request $request,
         TeamAuthorityDocument $document,
-        AuthorityDepartmentShareService $shares,
-        AuthorityReviewService $reviews
+        AuthorityDepartmentShareService $shares
     ): RedirectResponse {
         abort_unless($shares->canManage($this->user(), $document), 403);
         $request->validate([
@@ -31,7 +31,7 @@ class AuthorityDepartmentShareController extends Controller
         $file = $request->file('document');
         abort_unless($file instanceof UploadedFile, 422);
 
-        $share = $shares->share($this->user(), $document, $request->all(), $file);
+        $shares->share($this->user(), $document, $request->all(), $file);
 
         return redirect()->route('secure-access.authority.show', $document)
             ->with('status', __('Departmental disclosure saved.'));
@@ -62,12 +62,11 @@ class AuthorityDepartmentShareController extends Controller
         abort_unless($shares->canAccessDepartment($user, $department), 403);
 
         $visible = AuthorityDepartmentShare::query()->where('department', $department)->where('status', 'published')
-            ->with('document.relationship')->latest()->get()->filter(function (AuthorityDepartmentShare $share) use ($user, $shares) {
-            if (! $shares->canRead($user, $share)) {
-                return false;
-            }
-            return true;
-        })->values();
+            ->whereHas('document.relationship', fn ($query) => $query->whereNull('ended_at')
+                ->whereIn('self_advocate_id', DepartmentAssignment::query()->select('ward_id')
+                    ->where('department', $department)->where('assignee_id', (string) $user->getKey())))
+            ->latest()->get()->map(fn (AuthorityDepartmentShare $share) => $shares->readableShare($user, $share))
+            ->filter()->values();
         $page = LengthAwarePaginator::resolveCurrentPage();
         $items = new LengthAwarePaginator($visible->forPage($page, 25)->values(), $visible->count(), 25, $page, [
             'path' => request()->url(), 'query' => request()->query(),
@@ -89,9 +88,8 @@ class AuthorityDepartmentShareController extends Controller
         AuthorityReviewService $reviews
     ): Response {
         $user = $this->user();
-        $share->load('document.relationship');
-        abort_unless($shares->canAccessDepartment($user, $share->department), 404);
-        abort_unless($shares->canRead($user, $share), 404);
+        $share = $shares->readableShare($user, $share);
+        abort_unless($share, 404);
         $reviews->audit($share->document, $user, 'department_share_viewed', [
             'share_id' => $share->getKey(), 'department' => $share->department,
         ]);
@@ -107,9 +105,8 @@ class AuthorityDepartmentShareController extends Controller
         AuthorityReviewService $reviews
     ): \Symfony\Component\HttpFoundation\StreamedResponse {
         $user = $this->user();
-        $share->load('document.relationship');
-        abort_unless($shares->canAccessDepartment($user, $share->department), 404);
-        abort_unless($shares->canRead($user, $share), 404);
+        $share = $shares->readableShare($user, $share);
+        abort_unless($share, 404);
         abort_unless(Storage::disk('local')->exists($share->path), 404);
         $reviews->audit($share->document, $user, 'department_share_downloaded', [
             'share_id' => $share->getKey(), 'department' => $share->department,

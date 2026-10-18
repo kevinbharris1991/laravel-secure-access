@@ -19,6 +19,10 @@ Route::get('dashboard/authority-shares/{department}', [AuthorityDepartmentShareC
     ->whereIn('department', ['medical-nursing', 'finance-accounting'])->name('authority.shares.department');
 Route::get('dashboard/authority-shares/items/{share}', [AuthorityDepartmentShareController::class, 'show'])
     ->whereNumber('share')->name('authority.shares.show');
+Route::put('dashboard/authority-shares/items/{share}', [AuthorityDepartmentShareController::class, 'update'])
+    ->whereNumber('share')->middleware('throttle:secure-access')->name('authority.shares.update');
+Route::delete('dashboard/authority-shares/items/{share}', [AuthorityDepartmentShareController::class, 'destroy'])
+    ->whereNumber('share')->middleware('throttle:secure-access')->name('authority.shares.destroy');
 Route::get('dashboard/authority-shares/items/{share}/download', [AuthorityDepartmentShareController::class, 'download'])
     ->whereNumber('share')->name('authority.shares.download');
 Route::post('dashboard/authority/{document}/revocation-evidence', [AuthorityRevocationEvidenceController::class, 'store'])

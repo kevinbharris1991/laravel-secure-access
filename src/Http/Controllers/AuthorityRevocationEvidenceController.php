@@ -36,10 +36,13 @@ class AuthorityRevocationEvidenceController extends Controller
         $actor = $this->user();
         abort_unless(app(AuthorityReviewService::class)->canView($actor, $evidence->document), 404);
         $service->audit($evidence, $actor, 'revocation_evidence_viewed');
+        $canViewHistory = $service->canReview($actor, $evidence);
 
         return response()->view('secure-access::authority.evidence', [
             'evidence' => $evidence,
             'canReview' => $evidence->status === 'pending' && $service->canReview($actor, $evidence),
+            'canViewHistory' => $canViewHistory,
+            'history' => $canViewHistory ? ($evidence->review_history ?? []) : [],
         ])->header('Cache-Control', 'private, no-store')
             ->header('X-Content-Type-Options', 'nosniff');
     }

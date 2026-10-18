@@ -35,8 +35,10 @@ class RepresentativeAccessTest extends TestCase
         $this->document = new TeamAuthorityDocument;
         $this->document->forceFill([
             'team_member_id' => $this->relationship->id, 'type' => 'guardianship',
+            'ward_id' => (string) $this->adult->id, 'revision' => 1,
             'path' => 'private/original.pdf', 'file_name' => 'authority-document.pdf',
             'submitted_by' => (string) $this->representative->id, 'status' => 'approved',
+            'review_decision' => 'confirmed', 'lifecycle_status' => 'active',
             'approved_scopes' => ['bookings.create', 'bookings.read', 'bookings.update', 'bookings.cancel'],
             'effective_at' => now()->subDay(), 'expires_at' => now()->addDay(),
         ])->save();
@@ -119,6 +121,26 @@ class RepresentativeAccessTest extends TestCase
         $this->get($url)->assertNotFound();
     }
 
+    public function test_active_lifecycle_and_legacy_approval_never_bypass_the_current_review_decision(): void
+    {
+        $url = route('secure-access.representative.module', [$this->relationship, 'bookings']);
+        foreach (['pending', 'denied', 'inquired'] as $decision) {
+            $this->document->forceFill([
+                'status' => 'approved', 'review_decision' => $decision, 'lifecycle_status' => 'active',
+            ])->save();
+            $this->get($url)->assertForbidden();
+        }
+        $this->document->forceFill(['review_decision' => 'confirmed'])->save();
+        foreach (['inactive', 'superseded', 'suspended', 'revoked', 'expired'] as $lifecycle) {
+            $this->document->forceFill(['lifecycle_status' => $lifecycle])->save();
+            $this->get($url)->assertForbidden();
+        }
+        $this->document->forceFill(['lifecycle_status' => 'active', 'effective_at' => null])->save();
+        $this->get($url)->assertForbidden();
+        $this->document->forceFill(['effective_at' => now()->subDay()])->save();
+        $this->get($url)->assertOk();
+    }
+
     public function test_rejected_or_revoked_authority_never_disables_the_adults_ordinary_access(): void
     {
         $this->signIn($this->adult);
@@ -164,8 +186,10 @@ class RepresentativeAccessTest extends TestCase
         $other = new TeamAuthorityDocument;
         $other->forceFill([
             'team_member_id' => $this->relationship->id, 'type' => 'power_of_attorney',
+            'ward_id' => (string) $this->adult->id, 'revision' => 1,
             'path' => 'private/second.pdf', 'file_name' => 'authority-document.pdf',
             'submitted_by' => (string) $this->representative->id, 'status' => 'approved',
+            'review_decision' => 'confirmed', 'lifecycle_status' => 'active',
             'approved_scopes' => ['booking_balances.read'], 'effective_at' => now()->subDay(),
         ])->save();
         $this->document->forceFill(['status' => 'revoked'])->save();

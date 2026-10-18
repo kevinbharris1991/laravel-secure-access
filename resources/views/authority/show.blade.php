@@ -10,6 +10,7 @@
     @endif
     <section class="sa-section">
         <h2 class="sa-title">{{ $document->type === 'power_of_attorney' ? __('Power of attorney — agent authority') : __(ucwords(str_replace('_', ' ', $document->type))) }}</h2>
+        <p class="sa-text">{{ __('Document #:id', ['id' => $document->getKey()]) }} — {{ $document->revision === null ? __('Legacy revision not assigned') : __('Rev:number', ['number' => $document->revision]) }} — {{ __('Ward #:id', ['id' => $document->ward_id ?? $document->relationship->self_advocate_id]) }}</p>
         <p class="sa-text">{{ __('Review decision') }}: {{ __(ucfirst($document->review_decision)) }}</p>
         <p class="sa-text">{{ __('Lifecycle status') }}: {{ __(ucfirst($document->lifecycle_status)) }}</p>
         <p class="sa-text">{{ __('Website access status') }}: {{ $document->statusLabel() }}</p>
@@ -31,7 +32,19 @@
             <h2 class="sa-title">{{ __('Review and lifecycle history') }}</h2>
             @forelse ($history as $review)
                 <p class="sa-text">{{ __(ucwords(str_replace('_', ' ', $review['decision']))) }} — {{ $review['reviewed_at'] }}</p>
+                <p class="sa-text">{{ __('Reviewer account #:id', ['id' => $review['reviewed_by'] ?? __('Not recorded')]) }}</p>
                 <p class="sa-text" style="white-space: pre-wrap">{{ $review['comments'] }}</p>
+                @if (! empty($review['confirmed_capabilities']) || (in_array($review['decision'], ['confirmed', 'approved'], true) && ! empty($review['approved_scopes'])))
+                    <h3 class="sa-title">{{ __('Capabilities confirmed in this review') }}</h3>
+                    <ul>
+                        @foreach ($review['confirmed_capabilities'] ?? $review['approved_scopes'] ?? [] as $scope)
+                            <li>{{ $scope }}</li>
+                        @endforeach
+                    </ul>
+                @endif
+                @if (! empty($review['effective_at']) || ! empty($review['expires_at']))
+                    <p class="sa-text">{{ __('Recorded effective date') }}: {{ $review['effective_at'] ?? __('Not specified') }} — {{ __('Recorded expiration') }}: {{ $review['expires_at'] ?? __('No expiry') }}</p>
+                @endif
             @empty
                 <p class="sa-text">{{ __('No reviews yet.') }}</p>
             @endforelse
@@ -42,7 +55,7 @@
                 <p><a class="sa-link" href="{{ route('secure-access.authority.show', $document->previous_document_id) }}">{{ __('Previous version') }}</a></p>
             @endif
             @forelse ($revisions ?? [] as $revision)
-                <p><a class="sa-link" href="{{ route('secure-access.authority.show', $revision) }}">{{ __('Document #:id', ['id' => $revision->getKey()]) }}</a> — {{ $revision->created_at }}</p>
+                <p><a class="sa-link" href="{{ route('secure-access.authority.show', $revision) }}">{{ __('Rev:number', ['number' => $revision->revision ?? '?']) }} — {{ __('Document #:id', ['id' => $revision->getKey()]) }}</a> — {{ $revision->created_at }}</p>
             @empty
                 <p class="sa-text">{{ __('No additional revisions.') }}</p>
             @endforelse
@@ -70,7 +83,7 @@
                         @endif
                     @endforeach
                 </select>
-                <p class="sa-text">{{ __('Confirmation does not establish legal authority. Select only website capabilities supported by the evidence, with an effective date and optional expiration. Capability and date fields apply only when confirming; changing the decision does not change lifecycle status.') }}</p>
+                <p class="sa-text">{{ __('Confirmation does not establish legal authority. Select only website capabilities supported by the evidence, with an effective date and optional expiration. Capability and date fields apply only when confirming. Review decisions never change lifecycle status: confirmation cannot reactivate an inactive document. An unresolved inquiry prevents use of its capabilities. Lifecycle changes are recorded separately below.') }}</p>
                 <p class="sa-text">{{ __('For update, payment, cancellation, submission, or commitment actions, also select the same module’s read capability. No capabilities are added automatically. A replacement for currently active authority must take effect immediately.') }}</p>
                 @foreach ($capabilities as $domain => $scopes)
                     <fieldset class="sa-section">
@@ -129,6 +142,7 @@
     </section>
 
     @if ($canShare)
+        @include('secure-access::authority.shares.manage')
         <section class="sa-section">
             <h2 class="sa-title">{{ __('Prepare departmental disclosure draft') }}</h2>
             <p class="sa-text">{{ __('Save only the minimum-necessary healthcare or financial summary and limitations. A draft is private and is not delivered until explicitly published. Upload a separately redacted PDF; the original is never modified or shared.') }}</p>
@@ -143,10 +157,11 @@
                 <textarea class="sa-input" id="share-summary" name="summary" maxlength="5000" required>{{ old('summary') }}</textarea>
                 <label class="sa-label" for="share-limitations">{{ __('Relevant healthcare or billing/payment limitations') }}</label>
                 <textarea class="sa-input" id="share-limitations" name="limitations" maxlength="5000" required>{{ old('limitations') }}</textarea>
-                <label class="sa-label" for="share-effective">{{ __('Disclosure effective date') }}</label>
-                <input class="sa-input" id="share-effective" type="date" name="effective_at" value="{{ old('effective_at', $document->effective_at?->toDateString()) }}" required>
+                <label class="sa-label" for="share-effective">{{ __('Disclosure effective date (optional; blank means immediately)') }}</label>
+                <input class="sa-input" id="share-effective" type="date" name="effective_at" value="{{ old('effective_at', $document->effective_at?->toDateString()) }}">
                 <label class="sa-label" for="share-expires">{{ __('Disclosure expiration date (optional)') }}</label>
                 <input class="sa-input" id="share-expires" type="date" name="expires_at" value="{{ old('expires_at', $document->expires_at?->toDateString()) }}">
+                <p class="sa-text">{{ __('Disclosure dates include the selected day in the application timezone. Authority dates and current assignment still limit access independently.') }}</p>
                 <label class="sa-label" for="share-copy">{{ __('Redacted PDF (maximum 10 MiB; PDF extension and MIME type required)') }}</label>
                 <input class="sa-input" id="share-copy" type="file" name="document" accept=".pdf,application/pdf" required>
                 <label class="sa-label"><input type="checkbox" name="redacted_confirmation" value="1" required> {{ __('I confirm this PDF is redacted for the selected department.') }}</label>

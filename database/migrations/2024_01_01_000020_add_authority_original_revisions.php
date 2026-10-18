@@ -22,7 +22,7 @@ return new class extends Migration
         }
 
         $storage = app(AuthorityOriginalStorage::class);
-        TeamAuthorityDocument::query()->whereNull('revision')->orderBy('id')->each(function ($document) use ($storage) {
+        TeamAuthorityDocument::query()->whereNull('revision')->eachById(function ($document) use ($storage) {
             $relationship = $document->relationship;
             $wardId = $relationship->self_advocate_id;
             $revision = (int) DB::table('secure_access_team_authority_documents')
@@ -53,9 +53,16 @@ return new class extends Migration
             } finally {
                 fclose($source);
             }
-            DB::table('secure_access_team_authority_documents')->where('id', $document->getKey())->update([
-                'ward_id' => $wardId, 'revision' => $revision, 'path' => $path, 'file_name' => $filename,
-            ]);
+            DB::transaction(function () use ($document, $wardId, $revision, $path, $filename) {
+                DB::table('secure_access_team_authority_documents')->where('id', $document->getKey())->update([
+                    'ward_id' => $wardId, 'revision' => $revision, 'path' => $path, 'file_name' => $filename,
+                ]);
+                DB::table('secure_access_authority_document_audits')->insert([
+                    'document_id' => $document->getKey(), 'team_member_id' => $document->team_member_id,
+                    'actor_id' => null, 'action' => 'original_migrated', 'metadata' => '{}',
+                    'created_at' => now(), 'updated_at' => now(),
+                ]);
+            });
         });
     }
 

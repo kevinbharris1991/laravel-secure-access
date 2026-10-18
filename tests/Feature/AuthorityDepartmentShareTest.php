@@ -154,9 +154,15 @@ class AuthorityDepartmentShareTest extends TestCase
         $this->put(route('secure-access.authority.shares.update', $share), [
             'summary' => 'Published summary', 'limitations' => 'Limited', 'status' => 'published',
         ])->assertRedirect();
+        $revision = $share->fresh()->revision;
+        $this->put(route('secure-access.authority.shares.update', $share), [
+            'summary' => 'Published summary', 'limitations' => 'Limited', 'status' => 'published',
+        ])->assertRedirect();
+        $this->assertSame($revision, $share->fresh()->revision);
         $service = app(AuthorityDepartmentShareService::class);
         $service->synchronizeForDocument($this->document);
         $service->synchronizeForWard((string) $this->adult->id);
+        $this->assertSame('Published summary', $service->readableShare($this->nurse, $share)->summary);
         $this->assertSame(1, DepartmentDisclosureGrant::count());
         $this->deliver();
         $this->deliver();
@@ -216,7 +222,7 @@ class AuthorityDepartmentShareTest extends TestCase
     {
         config(['app.timezone' => 'America/Los_Angeles']);
         $this->travelTo(CarbonImmutable::parse('2026-05-02 00:30:00', 'UTC'));
-        $this->document->forceFill(['effective_at' => '2026-05-01', 'expires_at' => '2026-05-03'])->save();
+        $this->document->forceFill(['effective_at' => '2026-05-01', 'expires_at' => null])->save();
         $this->assignNurse();
         $share = $this->createShare(['effective_at' => '2026-05-02', 'expires_at' => '2026-05-02']);
         $this->assertSame(0, DepartmentDisclosureGrant::count());
@@ -259,6 +265,28 @@ class AuthorityDepartmentShareTest extends TestCase
         $this->login($replacement);
         $this->get(route('secure-access.authority.shares.show', $share))->assertOk();
         $this->assertDatabaseHas('secure_access_department_assignment_audits', ['action' => 'reassigned']);
+    }
+
+    public function test_source_dates_staff_membership_and_assignment_removal_are_authorized_without_scheduled_sync(): void
+    {
+        $this->assignNurse();
+        $share = $this->createShare();
+        $this->login($this->nurse);
+        $this->document->forceFill(['effective_at' => null])->save();
+        $this->get(route('secure-access.authority.shares.show', $share))->assertNotFound();
+        $this->document->forceFill(['effective_at' => now()->addHour()])->save();
+        $this->get(route('secure-access.authority.shares.show', $share))->assertNotFound();
+        $this->document->forceFill(['effective_at' => now()->subDay(), 'expires_at' => now()->subSecond()])->save();
+        $this->get(route('secure-access.authority.shares.download', $share))->assertNotFound();
+        $this->document->forceFill(['expires_at' => null])->save();
+        $this->get(route('secure-access.authority.shares.show', $share))->assertOk();
+        $this->nurse->accessGroups()->detach();
+        $this->get(route('secure-access.authority.shares.show', $share))->assertNotFound();
+        $this->nurse->accessGroups()->attach(AccessGroup::where('key', 'medical-nursing')->sole());
+        app(DepartmentAssignmentService::class)->remove($this->reviewer, DepartmentAssignment::sole());
+        $this->get(route('secure-access.authority.shares.show', $share))->assertNotFound();
+        $this->deliver();
+        Notification::assertNothingSent();
     }
 
     public function test_queued_delivery_rechecks_membership_acl_dates_and_content_revision(): void
@@ -308,11 +336,24 @@ class AuthorityDepartmentShareTest extends TestCase
         $this->assertSame(0, AuthorityDepartmentShare::count());
     }
 
+    public function test_drafts_can_be_prepared_before_confirmation_but_publication_requires_confirmed_active_source(): void
+    {
+        $this->document->forceFill(['review_decision' => 'pending', 'status' => 'pending'])->save();
+        $share = $this->createShare(['status' => 'draft']);
+        $this->put(route('secure-access.authority.shares.update', $share), [
+            'summary' => 'Draft summary', 'limitations' => 'Limited', 'status' => 'published',
+        ])->assertForbidden();
+        $this->document->forceFill(['review_decision' => 'confirmed', 'status' => 'inactive', 'lifecycle_status' => 'inactive'])->save();
+        $this->post(route('secure-access.authority.shares.store', $this->document), $this->payload())->assertForbidden();
+        $this->assertSame('draft', $share->fresh()->status);
+        $this->assertSame(0, DepartmentDisclosureGrant::count());
+    }
+
     public function test_redacted_upload_requires_pdf_mime_extension_and_ten_mb_limit_and_confirmation(): void
     {
         $this->login($this->reviewer);
         foreach ([
-            UploadedFile::fake()->image('redacted.png'),
+            UploadedFile::fake()->create('redacted.png', 100, 'image/png'),
             UploadedFile::fake()->create('redacted.pdf', 100, 'text/plain'),
             UploadedFile::fake()->create('redacted.jpg', 100, 'application/pdf'),
             UploadedFile::fake()->create('redacted.pdf', 10241, 'application/pdf'),

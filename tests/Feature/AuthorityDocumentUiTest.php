@@ -31,12 +31,16 @@ class AuthorityDocumentUiTest extends TestCase
         return TeamAuthorityDocument::create([
             'team_member_id' => $relationship->getKey(),
             'submitted_by' => (string) $agent->getKey(),
+            'ward_id' => (string) $adult->getKey(),
+            'revision' => 1,
             'type' => 'power_of_attorney',
             'path' => 'private-original.pdf',
             'file_name' => 'private-original.pdf',
             'review_history' => [[
-                'decision' => 'inquired',
+                'decision' => 'confirmed',
                 'comments' => 'Restricted reviewer-only rationale',
+                'reviewed_by' => '12345',
+                'confirmed_capabilities' => ['billing.read'],
                 'reviewed_at' => now()->toIso8601String(),
             ]],
         ]);
@@ -54,6 +58,10 @@ class AuthorityDocumentUiTest extends TestCase
             ->assertSee('Review and lifecycle history')
             ->assertSee('Revision history')
             ->assertSee('Audit history')
+            ->assertSee('Rev1')
+            ->assertSee('Reviewer account #12345')
+            ->assertSee('Capabilities confirmed in this review')
+            ->assertSee('billing.read')
             ->assertSee('name="decision"', false)
             ->assertSee('name="lifecycle_status"', false)
             ->assertSee(route('secure-access.authority.lifecycle', $document))

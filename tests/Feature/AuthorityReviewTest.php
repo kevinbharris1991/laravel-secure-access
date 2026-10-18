@@ -33,6 +33,9 @@ class AuthorityReviewTest extends TestCase
         $originals = Storage::fake('authority-originals');
         $storage = \Mockery::mock(AuthorityOriginalStorage::class)->makePartial();
         $storage->shouldReceive('disk')->andReturn($originals);
+        $storage->shouldReceive('canRead')->andReturnUsing(
+            fn (TeamAuthorityDocument $document): bool => $originals->exists($document->path)
+        );
         $storage->shouldReceive('store')->andReturnUsing(function (UploadedFile $file, string $path) use ($originals) {
             $originals->put($path, file_get_contents($file->getRealPath()));
         });
@@ -131,7 +134,9 @@ class AuthorityReviewTest extends TestCase
         $this->login($this->reviewer);
         $lifecycle = route('secure-access.authority.lifecycle', $document);
         $this->post($lifecycle, ['lifecycle_status' => 'active'])->assertSessionHasErrors('comments');
-        $this->post($lifecycle, ['lifecycle_status' => 'inactive', 'reason' => 'Website access paused.'])->assertRedirect();
+        $this->post(route('secure-access.authority.update', $document), [
+            'lifecycle_status' => 'inactive', 'reason' => 'Website access paused.',
+        ])->assertRedirect();
         $this->decision($document, 'confirm')->assertRedirect();
         $this->assertSame('confirmed', $document->fresh()->review_decision);
         $this->assertSame('inactive', $document->fresh()->lifecycle_status);
@@ -150,6 +155,35 @@ class AuthorityReviewTest extends TestCase
         ])->assertRedirect();
         $this->assertSame('pending', $pending->fresh()->review_decision);
         $this->assertNotContains('health_disclosures.read', app(RepresentativeAccess::class)->scopes($this->relationship));
+    }
+
+    public function test_existing_original_document_identity_and_storage_metadata_cannot_be_changed(): void
+    {
+        $document = $this->submit();
+        $original = $document->getAttributes();
+        foreach ([
+            'team_member_id' => $this->relationship->id + 100,
+            'ward_id' => 'another-ward',
+            'type' => 'conservatorship',
+            'revision' => 99,
+            'path' => 'replaced-original.pdf',
+            'file_name' => 'renamed-original.pdf',
+            'submitted_by' => (string) $this->reviewer->id,
+            'previous_document_id' => 999,
+        ] as $field => $value) {
+            try {
+                $document->forceFill([$field => $value])->save();
+                $this->fail('An original document field must not change: '.$field);
+            } catch (\LogicException $exception) {
+                $this->assertSame('Original authority document metadata is immutable.', $exception->getMessage());
+            }
+            $document->refresh();
+            $this->assertEquals($original[$field] ?? null, $document->getRawOriginal($field));
+        }
+        Storage::disk('authority-originals')->assertExists($document->path);
+        $this->login($this->reviewer);
+        $this->decision($document, 'confirm')->assertRedirect();
+        $this->assertSame('confirmed', $document->fresh()->review_decision);
     }
 
     public function test_inquiry_remains_unresolved_until_a_subsequent_review_and_removes_authority(): void
@@ -239,6 +273,20 @@ class AuthorityReviewTest extends TestCase
             ->permissions()->where('key', 'authority_documents.review_all')->exists());
     }
 
+    public function test_disclosure_audit_retains_non_content_grant_ids_but_excludes_sensitive_metadata(): void
+    {
+        $document = $this->submit();
+        $identifiers = [
+            'grant_id' => 11, 'assignment_id' => 12, 'recipient_id' => (string) $this->reviewer->id,
+            'assignment_version' => 2, 'share_revision' => 3,
+        ];
+        app(AuthorityReviewService::class)->audit($document, $this->reviewer, 'disclosure_access_granted',
+            $identifiers + ['comments' => 'Private rationale', 'summary' => 'Private summary', 'path' => $document->path]);
+        $audit = $document->audits()->where('action', 'disclosure_access_granted')->firstOrFail();
+        $this->assertSame($identifiers, $audit->metadata);
+        $this->assertStringNotContainsString('Private', $audit->toJson());
+    }
+
     public function test_document_upgrade_backfills_decisions_without_inventing_review_for_disabled_legacy_records(): void
     {
         $approved = $this->submit();
@@ -324,7 +372,9 @@ class AuthorityReviewTest extends TestCase
             $this->login($user);
             $this->decision($document, 'approved')->assertForbidden();
         }
-        $document->forceFill(['submitted_by' => (string) $this->reviewer->getKey()])->save();
+        DB::table($document->getTable())->where('id', $document->id)
+            ->update(['submitted_by' => (string) $this->reviewer->getKey()]);
+        $document->refresh();
         $this->login($this->reviewer);
         $this->decision($document, 'approved')->assertForbidden();
     }
@@ -414,7 +464,16 @@ class AuthorityReviewTest extends TestCase
             ->assertHeader('cache-control', 'no-store, private')
             ->assertHeader('x-content-type-options', 'nosniff');
         $this->login($this->adult);
-        $this->get(route('secure-access.authority.show', $document))->assertOk()->assertSee('Private review rationale');
+        $this->adult->accessGroups()->attach(AccessGroup::where('key', 'administrative-director')->firstOrFail());
+        $this->get(route('secure-access.authority.show', $document))->assertOk()
+            ->assertDontSee('Private review rationale')->assertViewHas('canViewHistory', false)
+            ->assertViewHas('history', [])->assertViewHas('revisions', fn ($revisions) => $revisions->isEmpty())
+            ->assertViewHas('audits', fn ($audits) => $audits->isEmpty());
+        $this->delete(route('secure-access.team.relationships.destroy', $this->relationship))->assertRedirect();
+        $this->login($this->reviewer);
+        $this->get(route('secure-access.authority.show', $document))->assertOk()
+            ->assertSee('Private review rationale')->assertViewHas('canViewHistory', true)
+            ->assertViewHas('canReview', false);
         $this->login($this->account('outsider', 'professional'));
         $this->get(route('secure-access.authority.show', $document))->assertNotFound();
     }
@@ -715,6 +774,22 @@ class AuthorityReviewTest extends TestCase
         $this->assertSame($evidence->id, $audit->metadata['evidence_id']);
         $this->assertStringNotContainsString('Private verification rationale', $audit->toJson());
         $this->reviewEvidence($evidence, 'rejected')->assertSessionHasErrors('decision');
+    }
+
+    public function test_evidence_review_history_is_visible_only_to_reviewers_after_a_final_decision(): void
+    {
+        $document = $this->submit();
+        $evidence = $this->submitEvidence($this->adult, $document);
+        $this->login($this->reviewer);
+        $this->reviewEvidence($evidence, 'rejected')->assertRedirect();
+        $this->get(route('secure-access.authority.evidence.show', $evidence))->assertOk()
+            ->assertViewHas('canViewHistory', true)->assertViewHas('canReview', false)
+            ->assertSee('Private verification rationale');
+        $this->login($this->adult);
+        $this->adult->accessGroups()->attach(AccessGroup::where('key', 'administrative-director')->firstOrFail());
+        $this->get(route('secure-access.authority.evidence.show', $evidence))->assertOk()
+            ->assertViewHas('canViewHistory', false)->assertViewHas('history', [])
+            ->assertDontSee('Private verification rationale');
     }
 
     public function test_rejected_or_information_requested_evidence_does_not_change_original_or_delete_files(): void
