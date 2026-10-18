@@ -95,10 +95,13 @@ class AuthorityRevocationEvidenceService
             ]);
             if ($data['decision'] === 'accepted') {
                 $from = $document->status;
-                $document->forceFill(['status' => 'revoked', 'termination_basis' => 'verified_evidence'])->save();
+                $document->forceFill([
+                    'status' => 'revoked', 'lifecycle_status' => 'revoked', 'termination_basis' => 'verified_evidence',
+                ])->save();
                 $this->audit($evidence, $actor, 'verified_termination_recorded', [
                     'from_status' => $from, 'to_status' => 'revoked',
                 ]);
+                app(AuthorityDepartmentShareService::class)->synchronizeForDocument($document);
             }
         });
     }

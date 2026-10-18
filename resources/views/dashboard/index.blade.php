@@ -13,6 +13,10 @@
             <h2 class="sa-title">{{ __('Nursing teams') }}</h2>
             <a class="sa-btn" href="{{ route('secure-access.nursing.index') }}">{{ __('Assign or remove a nurse') }}</a>
         </div>
+        <div class="sa-section">
+            <h2 class="sa-title">{{ __('Finance assignments') }}</h2>
+            <a class="sa-btn" href="{{ route('secure-access.finance.index') }}">{{ __('Assign or remove financial staff') }}</a>
+        </div>
     @endif
     @if ($canViewHealthcareAuthority)
         <div class="sa-section">

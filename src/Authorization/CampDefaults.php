@@ -22,7 +22,6 @@ class CampDefaults
                     'grant_applications.create_all', 'grant_applications.read_all', 'grant_applications.update_all',
                     'grant_applications.approve_all', 'public_content.manage_all', 'board_documents.manage_all',
                     'groups.manage_all', 'permissions.manage_all', 'invitations.create_all',
-                    'authority_documents.review_all',
                 ],
             ],
             'administrative-director' => [

@@ -23,6 +23,10 @@ class NurseTeamController extends Controller
         $nurses = $service->eligibleNurses()->get([$key, 'name'])
             ->map(fn ($user) => ['id' => (string) $user->getKey(), 'name' => $user->name]);
         $assignments = TeamMember::query()->whereNotNull('nurse_assigned_by')->whereNull('ended_at')
+            ->whereExists(fn ($query) => $query->selectRaw('1')->from('secure_access_department_assignments')
+                ->where('department', 'medical-nursing')
+                ->whereColumn('ward_id', 'secure_access_team_members.self_advocate_id')
+                ->whereColumn('assignee_id', 'secure_access_team_members.team_member_id'))
             ->orderBy('id')->get(['id', 'self_advocate_id', 'team_member_id', 'nurse_assigned_by', 'nurse_assigned_at']);
         $audits = DB::table('secure_access_nursing_assignment_audits')->orderByDesc('id')->paginate(50);
 

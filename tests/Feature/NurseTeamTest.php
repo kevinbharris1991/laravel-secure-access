@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Storage;
 use SecureAccess\Models\AccessGroup;
 use SecureAccess\Models\TeamAuthorityDocument;
 use SecureAccess\Models\TeamMember;
+use SecureAccess\Models\DepartmentAssignment;
 use SecureAccess\SecureAccess;
 use SecureAccess\Services\NurseTeamService;
 use SecureAccess\Tests\Fixtures\User;
@@ -224,5 +225,25 @@ class NurseTeamTest extends TestCase
         $this->delete(route('secure-access.nursing.destroy', $unassigned))->assertNotFound();
         $this->delete('/dashboard/nursing/not-numeric')->assertNotFound();
         $this->assertNull($unassigned->refresh()->ended_at);
+    }
+
+    public function test_reassignment_has_one_durable_current_department_assignment_and_old_removal_cannot_clear_it(): void
+    {
+        $director = $this->user('director', null, 'administrative-director');
+        $adult = $this->user('adult', 'self_advocate');
+        $first = $this->user('first', null, 'medical-nursing');
+        $second = $this->user('second', null, 'medical-nursing');
+        $service = app(NurseTeamService::class);
+        $previous = $service->assign($director, (string) $adult->id, (string) $first->id);
+        $service->assign($director, (string) $adult->id, (string) $second->id);
+        $assignment = DepartmentAssignment::sole();
+        $this->assertSame((string) $second->id, $assignment->assignee_id);
+        $this->assertSame(2, $assignment->version);
+        $this->login($director);
+        $response = $this->get(route('secure-access.nursing.index'))->assertOk();
+        $this->assertCount(1, $response->viewData('assignments'));
+        $this->assertSame((string) $second->id, $response->viewData('assignments')->first()->team_member_id);
+        $service->remove($director, $previous);
+        $this->assertSame((string) $second->id, $assignment->refresh()->assignee_id);
     }
 }

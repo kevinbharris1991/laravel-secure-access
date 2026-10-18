@@ -33,13 +33,15 @@ class DashboardController extends Controller
 
         $staffPermission = collect(['users.read_all', 'users.manage_all', 'executive_users.manage_all'])
             ->first(fn ($permission) => Gate::forUser($user)->allows('secure-access', [$permission]));
+        $access = app(AccessControl::class);
+        $isAdministrativeDirector = $access->isMember($user, 'administrative-director');
 
         return view('secure-access::dashboard.index', [
             'groups' => $groups,
             'staffPermission' => $staffPermission,
-            'canReviewAuthority' => app(AccessControl::class)->allows($user, 'authority_documents.review_all'),
-            'canViewHealthcareAuthority' => app(AccessControl::class)->allows($user, 'authority_documents.healthcare.read_all'),
-            'canViewFinancialAuthority' => app(AccessControl::class)->allows($user, 'authority_documents.financial.read_all'),
+            'canReviewAuthority' => $isAdministrativeDirector && $access->allows($user, 'authority_documents.review_all'),
+            'canViewHealthcareAuthority' => $access->allows($user, 'authority_documents.healthcare.read_all'),
+            'canViewFinancialAuthority' => $access->allows($user, 'authority_documents.financial.read_all'),
             'canManageTeam' => in_array($user?->registration_role, ['self_advocate', 'family_caregiver', 'professional'], true),
             'campItems' => config('secure-access-acl.enabled') ? Modules::visible($user) : [],
             'items' => $dashboard->resolveFor($user, [

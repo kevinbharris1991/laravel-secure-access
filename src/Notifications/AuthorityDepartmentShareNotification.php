@@ -19,7 +19,7 @@ class AuthorityDepartmentShareNotification extends Notification
         return (new MailMessage)
             ->subject(__('New authority information is available'))
             ->greeting(__('Hello!'))
-            ->line(__('Authorized material has been shared with your department. Sign in to review it in your secure dashboard.'))
+            ->line(__('New information is available in your secure dashboard. Sign in to review your currently authorized items.'))
             ->action(__('Open dashboard'), route('secure-access.authority.shares.department', $this->department));
     }
 }

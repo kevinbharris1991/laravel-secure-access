@@ -13,13 +13,21 @@ class AuthorityDepartmentShare extends Model
 
     protected $fillable = [
         'document_id', 'department', 'created_by', 'summary', 'limitations', 'path', 'file_name',
+        'status', 'effective_at', 'expires_at', 'published_at', 'redacted_verified_at', 'revision',
     ];
 
     protected $hidden = ['summary', 'limitations', 'path'];
 
+    protected $attributes = ['status' => 'draft', 'revision' => 1];
+
     protected $casts = [
         'summary' => 'encrypted',
         'limitations' => 'encrypted',
+        'effective_at' => 'date',
+        'expires_at' => 'date',
+        'published_at' => 'datetime',
+        'redacted_verified_at' => 'datetime',
+        'revision' => 'integer',
     ];
 
     public function document(): BelongsTo

@@ -15,6 +15,7 @@ use SecureAccess\Models\TeamAuthorityDocument;
 use SecureAccess\Models\TeamMember;
 use SecureAccess\SecureAccess;
 use SecureAccess\Services\AuthorityReviewService;
+use SecureAccess\Services\AuthorityOriginalStorage;
 use SecureAccess\Tests\Fixtures\User;
 use SecureAccess\Tests\TestCase;
 
@@ -29,6 +30,13 @@ class AuthorityReviewTest extends TestCase
     {
         parent::setUp();
         Storage::fake('local');
+        $originals = Storage::fake('authority-originals');
+        $storage = \Mockery::mock(AuthorityOriginalStorage::class)->makePartial();
+        $storage->shouldReceive('disk')->andReturn($originals);
+        $storage->shouldReceive('store')->andReturnUsing(function (UploadedFile $file, string $path) use ($originals) {
+            $originals->put($path, file_get_contents($file->getRealPath()));
+        });
+        $this->app->instance(AuthorityOriginalStorage::class, $storage);
         Notification::fake();
         $this->representative = $this->account('representative', 'professional');
         $this->adult = $this->account('adult', 'self_advocate');
@@ -73,7 +81,7 @@ class AuthorityReviewTest extends TestCase
     {
         return $this->post(route('secure-access.authority.update', $document), $extra + [
             'decision' => $decision, 'comments' => 'Private review rationale',
-            ...($decision === 'approved' ? [
+            ...(in_array($decision, ['approved', 'confirm'], true) ? [
                 'approved_scopes' => [$this->scope()],
                 'effective_at' => now()->subMinute()->toDateTimeString(),
                 'expires_at' => now()->addYear()->toDateTimeString(),
@@ -105,24 +113,164 @@ class AuthorityReviewTest extends TestCase
     {
         $document = $this->submit();
         $this->assertSame('pending', $document->status);
+        $this->assertSame('pending', $document->review_decision);
+        $this->assertSame('active', $document->lifecycle_status);
+        $this->assertSame([], app(RepresentativeAccess::class)->scopes($this->relationship));
         $this->assertSame((string) $this->representative->getKey(), $document->submitted_by);
         $this->assertNull($document->approved_scopes);
-        $this->assertSame('authority-document.pdf', $document->file_name);
+        $this->assertSame(now()->toDateString().' - Otwell & Otwell - Guardianship - Rev1.pdf', $document->file_name);
         $audit = $document->audits()->firstOrFail();
         $this->assertSame('submitted', $audit->action);
         $this->assertSame([], $audit->metadata);
         $this->assertStringNotContainsString('sensitive-adult-name', $audit->toJson());
     }
 
-    public function test_executive_directors_and_administrative_directors_can_review_but_lookalike_groups_cannot(): void
+    public function test_review_and_lifecycle_are_independent_and_activation_never_confirms_authority(): void
+    {
+        $document = $this->submit();
+        $this->login($this->reviewer);
+        $lifecycle = route('secure-access.authority.lifecycle', $document);
+        $this->post($lifecycle, ['lifecycle_status' => 'active'])->assertSessionHasErrors('comments');
+        $this->post($lifecycle, ['lifecycle_status' => 'inactive', 'reason' => 'Website access paused.'])->assertRedirect();
+        $this->decision($document, 'confirm')->assertRedirect();
+        $this->assertSame('confirmed', $document->fresh()->review_decision);
+        $this->assertSame('inactive', $document->fresh()->lifecycle_status);
+        $this->assertSame([], app(RepresentativeAccess::class)->scopes($this->relationship));
+        $this->post($lifecycle, ['lifecycle_status' => 'active', 'reason' => 'Website access restored.'])->assertRedirect();
+        $this->assertContains($this->scope(), app(RepresentativeAccess::class)->scopes($this->relationship));
+        $this->assertSame((string) $this->reviewer->id, $document->fresh()->reviewed_by);
+        $this->assertSame([$this->scope()], $document->fresh()->review_history[1]['confirmed_capabilities']);
+
+        $pending = $this->submit(['type' => 'conservatorship']);
+        $pending->forceFill(['approved_scopes' => ['health_disclosures.read'], 'status' => 'approved'])->save();
+        $this->assertNotContains('health_disclosures.read', app(RepresentativeAccess::class)->scopes($this->relationship));
+        $this->login($this->reviewer);
+        $this->post(route('secure-access.authority.lifecycle', $pending), [
+            'lifecycle_status' => 'active', 'comments' => 'Not a review decision.',
+        ])->assertRedirect();
+        $this->assertSame('pending', $pending->fresh()->review_decision);
+        $this->assertNotContains('health_disclosures.read', app(RepresentativeAccess::class)->scopes($this->relationship));
+    }
+
+    public function test_inquiry_remains_unresolved_until_a_subsequent_review_and_removes_authority(): void
+    {
+        $document = $this->submit();
+        $this->login($this->reviewer);
+        $this->decision($document, 'confirm', ['reason' => 'Authority verified.'])->assertRedirect();
+        $this->decision($document, 'inquire', ['reason' => 'Clarify the authorized scope.'])->assertRedirect();
+        $this->assertSame('inquired', $document->fresh()->review_decision);
+        $this->assertSame('active', $document->fresh()->lifecycle_status);
+        $this->assertSame([], app(RepresentativeAccess::class)->scopes($this->relationship));
+        $this->post(route('secure-access.authority.lifecycle', $document), [
+            'lifecycle_status' => 'active', 'comments' => 'This does not resolve the inquiry.',
+        ])->assertRedirect();
+        $this->assertSame('inquired', $document->fresh()->review_decision);
+        $this->assertSame([], app(RepresentativeAccess::class)->scopes($this->relationship));
+        $this->decision($document, 'confirm', ['reason' => 'Clarification received and verified.'])->assertRedirect();
+        $this->assertContains($this->scope(), app(RepresentativeAccess::class)->scopes($this->relationship));
+        $this->assertSame(['confirmed', 'inquired', 'active', 'confirmed'],
+            array_column($document->fresh()->review_history, 'decision'));
+    }
+
+    public function test_deny_records_a_review_without_fabricating_legal_termination(): void
+    {
+        $document = $this->submit();
+        $this->login($this->reviewer);
+        $this->decision($document, 'deny', ['reason' => 'The document does not establish authority.'])->assertRedirect();
+        $this->assertSame('denied', $document->fresh()->review_decision);
+        $this->assertSame('active', $document->fresh()->lifecycle_status);
+        $this->assertNull($document->fresh()->termination_basis);
+        $this->assertSame([], app(RepresentativeAccess::class)->scopes($this->relationship));
+    }
+
+    public function test_date_only_authority_is_inclusive_through_the_configured_timezone_end_date(): void
+    {
+        $previousTimezone = date_default_timezone_get();
+        config(['app.timezone' => 'America/New_York']);
+        date_default_timezone_set('America/New_York');
+        try {
+            $this->travelTo(\Illuminate\Support\Carbon::parse('2026-11-01 12:00:00', 'America/New_York'));
+            $document = $this->submit();
+            $this->login($this->reviewer);
+            $this->decision($document, 'confirm', [
+                'effective_at' => '2026-11-01', 'expires_at' => '2026-11-01',
+            ])->assertRedirect();
+            $this->assertSame('2026-11-01 00:00:00', $document->fresh()->effective_at->format('Y-m-d H:i:s'));
+            $this->assertSame('2026-11-02 00:00:00', $document->fresh()->expires_at->format('Y-m-d H:i:s'));
+            $this->travelTo(\Illuminate\Support\Carbon::parse('2026-11-01 23:59:59', 'America/New_York'));
+            $this->assertContains($this->scope(), app(RepresentativeAccess::class)->scopes($this->relationship));
+            $this->travelTo(\Illuminate\Support\Carbon::parse('2026-11-02 00:00:00', 'America/New_York'));
+            $this->assertSame([], app(RepresentativeAccess::class)->scopes($this->relationship));
+            app(AuthorityReviewService::class)->expire($this->relationship);
+            $this->assertSame('confirmed', $document->fresh()->review_decision);
+            $this->assertSame('expired', $document->fresh()->lifecycle_status);
+            $this->post(route('secure-access.authority.lifecycle', $document), [
+                'lifecycle_status' => 'active', 'reason' => 'Cannot bypass expiry.',
+            ])->assertSessionHasErrors('lifecycle_status');
+        } finally {
+            $this->travelBack();
+            date_default_timezone_set($previousTimezone);
+        }
+    }
+
+    public function test_future_effective_authority_remains_ineligible_even_when_active(): void
+    {
+        $document = $this->submit();
+        $this->login($this->reviewer);
+        $this->decision($document, 'confirm', ['effective_at' => now()->addDay()->toDateString()])->assertRedirect();
+        $this->post(route('secure-access.authority.lifecycle', $document), [
+            'lifecycle_status' => 'active', 'reason' => 'Already active.',
+        ])->assertRedirect();
+        $this->assertSame('confirmed', $document->fresh()->review_decision);
+        $this->assertSame([], app(RepresentativeAccess::class)->scopes($this->relationship));
+    }
+
+    public function test_review_acl_upgrade_removes_only_non_ad_review_grants(): void
+    {
+        $group = AccessGroup::create(['key' => 'custom-authority-reviewer', 'name' => 'Custom reviewer']);
+        $reviewPermission = DB::table('secure_access_permissions')->where('key', 'authority_documents.review_all')->value('id');
+        $otherPermission = DB::table('secure_access_permissions')->where('key', 'system.read_all')->value('id');
+        $group->permissions()->attach([$reviewPermission, $otherPermission]);
+        $migration = require __DIR__.'/../../database/acl-migrations/2024_01_01_000012_restrict_authority_review_to_administrative_director.php';
+        $migration->up();
+        $this->assertFalse($group->permissions()->where('key', 'authority_documents.review_all')->exists());
+        $this->assertTrue($group->permissions()->where('key', 'system.read_all')->exists());
+        $this->assertTrue(AccessGroup::where('key', 'administrative-director')->firstOrFail()
+            ->permissions()->where('key', 'authority_documents.review_all')->exists());
+    }
+
+    public function test_document_upgrade_backfills_decisions_without_inventing_review_for_disabled_legacy_records(): void
+    {
+        $approved = $this->submit();
+        $approved->forceFill(['status' => 'approved'])->save();
+        $inactive = $this->submit(['type' => 'conservatorship']);
+        $inactive->forceFill(['status' => 'inactive'])->save();
+        $migration = require __DIR__.'/../../database/migrations/2024_01_01_000019_separate_authority_review_and_lifecycle.php';
+        $migration->down();
+        $migration->up();
+        $this->assertSame('confirmed', $approved->fresh()->review_decision);
+        $this->assertSame('active', $approved->fresh()->lifecycle_status);
+        $this->assertSame('approved', $approved->fresh()->status);
+        $this->assertSame('pending', $inactive->fresh()->review_decision);
+        $this->assertSame('inactive', $inactive->fresh()->lifecycle_status);
+        $this->assertSame([], app(RepresentativeAccess::class)->scopes($this->relationship));
+    }
+
+    public function test_only_administrative_directors_with_permission_can_review(): void
     {
         $document = $this->submit();
         $executive = $this->account('executive', 'professional');
         $executive->accessGroups()->attach(AccessGroup::where('key', 'executive-director')->firstOrFail());
         $this->login($executive);
-        $this->get(route('secure-access.authority.index'))->assertOk()->assertSee('Document #'.$document->id);
-        $this->decision($document, 'approved')->assertRedirect();
-        $this->assertSame('approved', $document->fresh()->status);
+        $this->get(route('secure-access.authority.index'))->assertForbidden();
+        $this->get(route('secure-access.authority.show', $document))->assertNotFound();
+        $this->decision($document, 'approved')->assertForbidden();
+        $this->assertSame('pending', $document->fresh()->status);
+        $permissionId = DB::table('secure_access_permissions')->where('key', 'authority_documents.review_all')->value('id');
+        DB::table('secure_access_group_grants')->insertOrIgnore([
+            'group_id' => AccessGroup::where('key', 'executive-director')->value('id'), 'permission_id' => $permissionId,
+        ]);
+        $this->decision($document, 'approved')->assertForbidden();
 
         $pending = $this->submit();
         $imposter = $this->account('lookalike-director', 'professional');
@@ -135,29 +283,37 @@ class AuthorityReviewTest extends TestCase
         $this->get(route('secure-access.authority.index'))->assertOk()->assertSee('Document #'.$pending->id)
             ->assertHeader('cache-control', 'no-store, private')
             ->assertHeader('x-content-type-options', 'nosniff');
+        DB::table('secure_access_group_grants')
+            ->where('group_id', AccessGroup::where('key', 'administrative-director')->value('id'))
+            ->where('permission_id', $permissionId)->delete();
+        $this->decision($document, 'approved')->assertForbidden();
     }
 
     public function test_reviewer_can_mark_documents_inactive_or_superseded_with_encrypted_reason_and_audit(): void
     {
         $inactive = $this->submit();
         $this->login($this->reviewer);
-        $this->decision($inactive, 'inactive')->assertRedirect();
+        $this->post(route('secure-access.authority.lifecycle', $inactive), [
+            'lifecycle_status' => 'inactive', 'comments' => 'Private review rationale',
+        ])->assertRedirect();
         $this->assertSame('inactive', $inactive->fresh()->status);
+        $this->assertSame('pending', $inactive->fresh()->review_decision);
         $this->assertSame('Private review rationale', $inactive->fresh()->review_history[0]['comments']);
         $this->assertNull($inactive->fresh()->approved_scopes);
-        $inactiveAudit = $inactive->audits()->where('action', 'reviewed')->firstOrFail();
+        $inactiveAudit = $inactive->audits()->where('action', 'lifecycle_changed')->firstOrFail();
         $this->assertSame((string) $this->reviewer->id, $inactiveAudit->actor_id);
         $this->assertSame(['from_status' => 'pending', 'to_status' => 'inactive'], $inactiveAudit->metadata);
         $this->assertStringNotContainsString('Private review rationale', $inactiveAudit->toJson());
-        Notification::assertSentOnDemand(\SecureAccess\Notifications\AuthorityReviewNotification::class);
-        Storage::disk('local')->assertExists($inactive->path);
+        Storage::disk('authority-originals')->assertExists($inactive->path);
 
         $superseded = $this->submit(['type' => 'conservatorship']);
         $this->login($this->reviewer);
-        $this->decision($superseded, 'superseded')->assertRedirect();
+        $this->post(route('secure-access.authority.lifecycle', $superseded), [
+            'lifecycle_status' => 'superseded', 'comments' => 'Private review rationale',
+        ])->assertRedirect();
         $this->assertSame('superseded', $superseded->fresh()->status);
         $this->assertSame('superseded', $superseded->fresh()->review_history[0]['decision']);
-        Storage::disk('local')->assertExists($superseded->path);
+        Storage::disk('authority-originals')->assertExists($superseded->path);
     }
 
     public function test_participants_and_submitter_cannot_review_even_with_director_membership(): void
@@ -263,18 +419,17 @@ class AuthorityReviewTest extends TestCase
         $this->get(route('secure-access.authority.show', $document))->assertNotFound();
     }
 
-    public function test_rejected_and_information_requested_documents_require_immutable_new_versions(): void
+    public function test_rejected_and_information_requested_documents_support_immutable_new_versions(): void
     {
         $document = $this->submit();
         $this->login($this->reviewer);
         $this->decision($document, 'needs_information')->assertRedirect();
-        $this->decision($document, 'approved')->assertSessionHasErrors('decision');
         $replacement = $this->submit(['previous_document_id' => $document->id]);
         $this->assertSame($document->id, (int) $replacement->previous_document_id);
         $this->assertSame('pending', $replacement->status);
         $this->assertSame('needs_information', $document->fresh()->status);
         $this->assertNotSame($document->path, $replacement->path);
-        Storage::disk('local')->assertExists($document->path);
+        Storage::disk('authority-originals')->assertExists($document->path);
         $this->assertDatabaseHas('secure_access_authority_document_audits', ['document_id' => $replacement->id, 'action' => 'resubmitted']);
         $this->login($this->reviewer);
         $this->decision($replacement, 'rejected')->assertRedirect();
@@ -348,8 +503,10 @@ class AuthorityReviewTest extends TestCase
 
     public function test_storage_failure_does_not_create_document_or_submission_audit(): void
     {
-        $file = \Mockery::mock(UploadedFile::class);
-        $file->shouldReceive('store')->once()->with('secure-access/authority-documents', 'local')->andReturn(false);
+        $file = UploadedFile::fake()->create('authority.pdf', 100, 'application/pdf');
+        $storage = \Mockery::mock(AuthorityOriginalStorage::class)->makePartial();
+        $storage->shouldReceive('store')->once()->andThrow(new \RuntimeException('Authority evidence could not be stored.'));
+        $this->app->instance(AuthorityOriginalStorage::class, $storage);
         try {
             app(AuthorityReviewService::class)->submit(
                 $this->representative, $this->relationship, ['type' => 'guardianship'], $file
@@ -386,7 +543,7 @@ class AuthorityReviewTest extends TestCase
         $this->assertStringNotContainsString('sensitive-adult-name', $url);
         foreach ([$this->reviewer, $this->adult, $this->representative] as $user) {
             $this->login($user);
-            $this->get($url)->assertOk()->assertDownload('authority-document.pdf')
+            $this->get($url)->assertOk()->assertDownload($document->file_name)
                 ->assertHeader('cache-control', 'no-store, private')
                 ->assertHeader('x-content-type-options', 'nosniff');
         }
@@ -406,7 +563,7 @@ class AuthorityReviewTest extends TestCase
         $this->assertNotNull($this->relationship->fresh()->ended_at);
         $this->assertSame('suspended', $document->fresh()->status);
         $this->assertSame('suspended', $pending->fresh()->status);
-        Storage::disk('local')->assertExists($document->path);
+        Storage::disk('authority-originals')->assertExists($document->path);
         $this->post(route('secure-access.team.authority-documents.store', $this->relationship), [
             'type' => 'guardianship', 'document' => UploadedFile::fake()->create('new.pdf', 100, 'application/pdf'),
         ])->assertNotFound();
@@ -495,7 +652,7 @@ class AuthorityReviewTest extends TestCase
         $this->assertFalse(Schema::hasColumn($document->getTable(), 'status'));
         $this->assertFalse(Schema::hasTable('secure_access_authority_document_audits'));
         $this->assertDatabaseHas($document->getTable(), ['id' => $document->id, 'path' => $document->path]);
-        Storage::disk('local')->assertExists($document->path);
+        Storage::disk('authority-originals')->assertExists($document->path);
         $migration->up();
         $this->assertDatabaseHas($document->getTable(), ['id' => $document->id, 'status' => 'pending']);
         $this->assertTrue(Schema::hasColumn('secure_access_team_members', 'ended_at'));
@@ -521,7 +678,7 @@ class AuthorityReviewTest extends TestCase
             Storage::disk('local')->assertExists($evidence->path);
         }
         $this->assertSame(3, AuthorityRevocationEvidence::count());
-        Storage::disk('local')->assertExists($document->path);
+        Storage::disk('authority-originals')->assertExists($document->path);
         $this->assertStringNotContainsString('Private supporting explanation', AuthorityDocumentAudit::all()->toJson());
         $this->assertStringNotContainsString('private-legal-revocation', AuthorityDocumentAudit::all()->toJson());
     }
@@ -541,12 +698,17 @@ class AuthorityReviewTest extends TestCase
         $this->reviewEvidence($evidence, 'accepted')->assertRedirect();
         $this->assertSame('accepted', $evidence->fresh()->status);
         $this->assertSame('revoked', $document->fresh()->status);
+        $this->assertSame('confirmed', $document->fresh()->review_decision);
+        $this->assertSame('revoked', $document->fresh()->lifecycle_status);
         $this->assertSame('verified_evidence', $document->fresh()->termination_basis);
+        $this->post(route('secure-access.authority.lifecycle', $document), [
+            'lifecycle_status' => 'active', 'reason' => 'This must not undo accepted termination evidence.',
+        ])->assertSessionHasErrors('lifecycle_status');
         $this->assertSame('approved', $other->fresh()->status);
         $this->assertSame($adultBefore, $this->adult->fresh()->getAttributes());
         $this->assertFalse(app(RepresentativeAccess::class)->grants($this->relationship)->whereKey($document->id)->exists());
         $this->assertTrue(app(RepresentativeAccess::class)->grants($this->relationship)->whereKey($other->id)->exists());
-        Storage::disk('local')->assertExists($document->path);
+        Storage::disk('authority-originals')->assertExists($document->path);
         Storage::disk('local')->assertExists($evidence->path);
         $this->get(route('secure-access.authority.show', $document))->assertOk()->assertSee('Verified termination recorded');
         $audit = $document->audits()->where('action', 'verified_termination_recorded')->firstOrFail();
@@ -572,7 +734,7 @@ class AuthorityReviewTest extends TestCase
             $this->reviewEvidence($evidence, 'accepted')->assertSessionHasErrors('decision');
             Storage::disk('local')->assertExists($evidence->path);
         }
-        Storage::disk('local')->assertExists($document->path);
+        Storage::disk('authority-originals')->assertExists($document->path);
         $this->assertSame(2, AuthorityRevocationEvidence::count());
         $this->assertStringNotContainsString('Private verification rationale', AuthorityDocumentAudit::all()->toJson());
     }
@@ -617,7 +779,7 @@ class AuthorityReviewTest extends TestCase
     {
         $document = $this->submit();
         $this->delete(route('secure-access.team.relationships.destroy', $this->relationship))->assertRedirect();
-        $this->assertSame('relationship_ended', $document->fresh()->termination_basis);
+        $this->assertNull($document->fresh()->termination_basis);
         $this->assertSame('suspended', $document->fresh()->status);
         $this->get(route('secure-access.team.index'))->assertOk()
             ->assertSee('Authority history for ended website relationships')
@@ -647,7 +809,7 @@ class AuthorityReviewTest extends TestCase
         $audit = $document->audits()->where('action', 'verified_termination_recorded')->firstOrFail();
         $this->assertSame('suspended', $audit->metadata['from_status']);
         $this->assertSame('revoked', $audit->metadata['to_status']);
-        Storage::disk('local')->assertExists($document->path);
+        Storage::disk('authority-originals')->assertExists($document->path);
     }
 
     public function test_evidence_files_and_review_comments_are_validated_and_routes_require_mfa(): void
@@ -713,9 +875,9 @@ class AuthorityReviewTest extends TestCase
         $service->endRelationship($this->reviewer, $this->relationship);
         $this->assertNotNull($this->relationship->fresh()->ended_at);
         $this->assertSame('suspended', $document->fresh()->status);
-        $this->assertSame('relationship_ended', $document->fresh()->termination_basis);
+        $this->assertNull($document->fresh()->termination_basis);
         $audit = $document->audits()->where('action', 'relationship_ended')->firstOrFail();
         $this->assertSame((string) $this->reviewer->id, $audit->actor_id);
-        Storage::disk('local')->assertExists($document->path);
+        Storage::disk('authority-originals')->assertExists($document->path);
     }
 }

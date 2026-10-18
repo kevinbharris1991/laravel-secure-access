@@ -4,7 +4,7 @@
 @section('header', __('Authority document review'))
 
 @section('content')
-    <p class="sa-text">{{ __('Review submitted evidence before granting specific capabilities within the authority’s effective dates. Uploading evidence does not grant access.') }}</p>
+    <p class="sa-text">{{ __('Independent Administrative Directors review submitted evidence. Confirmation does not establish legal authority. Review decisions and lifecycle status are separate; only confirmed, active documents within their dates can support explicitly selected website capabilities.') }}</p>
     <section class="sa-section">
         <h2 class="sa-title">{{ __('Pending termination-evidence reviews') }}</h2>
         @forelse ($evidenceQueue as $evidence)
@@ -29,6 +29,8 @@
                 <a class="sa-link" href="{{ route('secure-access.authority.show', $document) }}">{{ __('Document #:id', ['id' => $document->getKey()]) }}</a>
                 — {{ __(ucwords(str_replace('_', ' ', $document->type))) }}
                 — {{ $document->statusLabel() }}
+                — {{ __('Review') }}: {{ __(ucfirst($document->review_decision)) }}
+                — {{ __('Lifecycle') }}: {{ __(ucfirst($document->lifecycle_status)) }}
             </p>
         @empty
             <p class="sa-text">{{ __('No documents match this status.') }}</p>

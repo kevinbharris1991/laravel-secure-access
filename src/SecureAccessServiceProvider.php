@@ -13,6 +13,7 @@ use SecureAccess\Authorization\AccessControl;
 use SecureAccess\Authorization\AccessScope;
 use SecureAccess\Console\SeedCampAccessCommand;
 use SecureAccess\Console\SeedCampDemoUsersCommand;
+use SecureAccess\Console\SynchronizeAuthorityDisclosuresCommand;
 use SecureAccess\Console\UnlockAccountCommand;
 use SecureAccess\Contracts\SmsSender;
 use SecureAccess\Http\Middleware\EnsureAccessPermission;
@@ -62,7 +63,7 @@ class SecureAccessServiceProvider extends ServiceProvider
         }
 
         if ($this->app->runningInConsole()) {
-            $this->commands([UnlockAccountCommand::class, SeedCampAccessCommand::class, SeedCampDemoUsersCommand::class]);
+            $this->commands([UnlockAccountCommand::class, SeedCampAccessCommand::class, SeedCampDemoUsersCommand::class, SynchronizeAuthorityDisclosuresCommand::class]);
 
             $this->publishes([
                 __DIR__.'/../config/secure-access.php' => config_path('secure-access.php'),

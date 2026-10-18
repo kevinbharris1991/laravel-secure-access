@@ -11,6 +11,8 @@ Route::get('dashboard/authority/{document}', [AuthorityReviewController::class, 
     ->whereNumber('document')->name('authority.show');
 Route::post('dashboard/authority/{document}', [AuthorityReviewController::class, 'update'])
     ->whereNumber('document')->middleware('throttle:secure-access')->name('authority.update');
+Route::post('dashboard/authority/{document}/lifecycle', [AuthorityReviewController::class, 'lifecycle'])
+    ->whereNumber('document')->middleware('throttle:secure-access')->name('authority.lifecycle');
 Route::post('dashboard/authority/{document}/shares', [AuthorityDepartmentShareController::class, 'store'])
     ->whereNumber('document')->middleware('throttle:secure-access')->name('authority.shares.store');
 Route::get('dashboard/authority-shares/{department}', [AuthorityDepartmentShareController::class, 'index'])

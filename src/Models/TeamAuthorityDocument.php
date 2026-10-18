@@ -10,6 +10,8 @@ class TeamAuthorityDocument extends Model
 {
     public const TYPES = ['guardianship', 'conservatorship', 'power_of_attorney'];
     public const STATUSES = ['pending', 'approved', 'rejected', 'needs_information', 'inactive', 'suspended', 'revoked', 'superseded', 'expired'];
+    public const REVIEW_DECISIONS = ['pending', 'confirmed', 'denied', 'inquired'];
+    public const LIFECYCLE_STATUSES = ['active', 'inactive', 'superseded', 'suspended', 'revoked', 'expired'];
 
     protected $table = 'secure_access_team_authority_documents';
 
@@ -19,6 +21,8 @@ class TeamAuthorityDocument extends Model
         'path',
         'file_name',
         'status',
+        'review_decision',
+        'lifecycle_status',
         'submitted_by',
         'approved_scopes',
         'effective_at',
@@ -30,7 +34,7 @@ class TeamAuthorityDocument extends Model
         'termination_basis',
     ];
 
-    protected $attributes = ['status' => 'pending'];
+    protected $attributes = ['status' => 'pending', 'review_decision' => 'pending', 'lifecycle_status' => 'active'];
 
     protected $hidden = ['path', 'review_history'];
 
@@ -67,5 +71,19 @@ class TeamAuthorityDocument extends Model
         }
 
         return __(ucwords(str_replace('_', ' ', $this->status)));
+    }
+
+    public function compatibilityStatus(): string
+    {
+        if ($this->lifecycle_status !== 'active') {
+            return $this->lifecycle_status;
+        }
+
+        return match ($this->review_decision) {
+            'confirmed' => 'approved',
+            'denied' => 'rejected',
+            'inquired' => 'needs_information',
+            default => 'pending',
+        };
     }
 }

@@ -100,7 +100,8 @@ class TeamController extends Controller
 
         $validated = $request->validate([
             'type' => ['required', Rule::in(TeamAuthorityDocument::TYPES)],
-            'document' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
+            'document' => ['required', 'file', 'extensions:pdf,jpg,jpeg,png',
+                'mimes:pdf,jpg,jpeg,png', 'mimetypes:application/pdf,image/jpeg,image/png', 'max:10240'],
             'previous_document_id' => ['nullable', 'integer', 'min:1'],
         ]);
 
@@ -120,11 +121,13 @@ class TeamController extends Controller
             && $reviews->canView($user, $document), 404);
         $reviews->expire($relationship, $user);
 
-        abort_unless(Storage::disk('local')->exists($document->path), 404);
+        $originals = app(\SecureAccess\Services\AuthorityOriginalStorage::class);
+        abort_unless($originals->canRead($document), 404);
+        $disk = $originals->disk();
 
         $reviews->audit($document, $user, 'downloaded');
 
-        return Storage::disk('local')->download($document->path, 'authority-document.'.pathinfo($document->file_name, PATHINFO_EXTENSION),
+        return $disk->download($document->path, $document->file_name,
             ['Cache-Control' => 'private, no-store', 'X-Content-Type-Options' => 'nosniff']);
     }
 

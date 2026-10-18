@@ -21,9 +21,14 @@ class AuthorityReviewController extends Controller
         $user = $this->user();
         abort_unless($reviews->isReviewer($user), 403);
         $status = $request->query('status', 'pending');
-        abort_unless(in_array($status, array_merge(['all'], TeamAuthorityDocument::STATUSES), true), 404);
+        abort_unless(in_array($status, array_merge(['all'], TeamAuthorityDocument::STATUSES,
+            TeamAuthorityDocument::REVIEW_DECISIONS, TeamAuthorityDocument::LIFECYCLE_STATUSES), true), 404);
         $documents = TeamAuthorityDocument::query()->with('relationship')
-            ->when($status !== 'all', fn ($query) => $query->where('status', $status))
+            ->when($status !== 'all', function ($query) use ($status) {
+                $column = in_array($status, TeamAuthorityDocument::REVIEW_DECISIONS, true) ? 'review_decision'
+                    : (in_array($status, TeamAuthorityDocument::LIFECYCLE_STATUSES, true) ? 'lifecycle_status' : 'status');
+                $query->where($column, $status);
+            })
             ->latest()->paginate(25)->withQueryString();
         foreach ($documents as $document) {
             $reviews->audit($document, $user, 'viewed');
@@ -61,7 +66,7 @@ class AuthorityReviewController extends Controller
             'canShare' => $shares->canShare($user, $document),
             'canResubmit' => $document->relationship->ended_at === null
                 && $document->relationship->team_member_id === (string) $user->getKey()
-                && in_array($document->status, ['rejected', 'needs_information'], true)
+                && in_array($document->review_decision, ['denied', 'inquired'], true)
                 && ! TeamAuthorityDocument::query()->where('previous_document_id', $document->getKey())->exists(),
             'capabilities' => app(RepresentativeAccess::class)->capabilities(),
             'history' => $document->review_history ?? [],
@@ -76,6 +81,15 @@ class AuthorityReviewController extends Controller
         $reviews->review($user, $document, $request->all());
 
         return redirect()->route('secure-access.authority.show', $document)->with('status', __('Review recorded.'));
+    }
+
+    public function lifecycle(Request $request, TeamAuthorityDocument $document, AuthorityReviewService $reviews): RedirectResponse
+    {
+        $user = $this->user();
+        abort_unless($reviews->canReview($user, $document), 403);
+        $reviews->setLifecycle($user, $document, $request->all());
+
+        return redirect()->route('secure-access.authority.show', $document)->with('status', __('Lifecycle updated.'));
     }
 
     protected function user(): Model

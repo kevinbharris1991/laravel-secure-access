@@ -12,19 +12,21 @@
         <h2 class="sa-title">{{ __('Evidence #:id', ['id' => $evidence->getKey()]) }}</h2>
         <p class="sa-text">{{ __('Status') }}: {{ __(ucwords(str_replace('_', ' ', $evidence->status))) }}</p>
         <p class="sa-text">{{ __('Submitting evidence does not change access or revoke legal authority. Acceptance records an independently verified legal termination and ends only the representative website permissions granted by the original document. The adult’s ordinary permissions remain unchanged.') }}</p>
-        <p><a class="sa-link" href="{{ route('secure-access.authority.show', $evidence->document) }}">{{ __('Original authority document and evidence history') }}</a></p>
+        <p><a class="sa-link" href="{{ route('secure-access.authority.show', $evidence->document) }}">{{ __('Original authority document') }}</a></p>
         <p><a class="sa-link" href="{{ route('secure-access.authority.evidence.download', $evidence) }}">{{ __('Download evidence') }}</a></p>
         @if ($evidence->comments)
             <h3 class="sa-title">{{ __('Submitter comments') }}</h3>
             <p class="sa-text" style="white-space: pre-wrap">{{ $evidence->comments }}</p>
         @endif
-        <h3 class="sa-title">{{ __('Evidence review history') }}</h3>
-        @forelse ($evidence->review_history ?? [] as $review)
-            <p class="sa-text">{{ __(ucwords(str_replace('_', ' ', $review['decision']))) }} — {{ $review['reviewed_at'] }}</p>
-            <p class="sa-text" style="white-space: pre-wrap">{{ $review['comments'] }}</p>
-        @empty
-            <p class="sa-text">{{ __('No evidence review yet.') }}</p>
-        @endforelse
+        @if ($canViewHistory ?? false)
+            <h3 class="sa-title">{{ __('Evidence review history') }}</h3>
+            @forelse ($evidence->review_history ?? [] as $review)
+                <p class="sa-text">{{ __(ucwords(str_replace('_', ' ', $review['decision']))) }} — {{ $review['reviewed_at'] }}</p>
+                <p class="sa-text" style="white-space: pre-wrap">{{ $review['comments'] }}</p>
+            @empty
+                <p class="sa-text">{{ __('No evidence review yet.') }}</p>
+            @endforelse
+        @endif
         @if (in_array($evidence->status, ['rejected', 'needs_information'], true))
             <p class="sa-text">{{ __('Submit a new evidence file from the original document page for further review. Existing evidence and decisions are retained.') }}</p>
         @endif

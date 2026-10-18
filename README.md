@@ -656,9 +656,15 @@ The demo command requires the configured username/email columns plus `name` and
 
 ## Team messages and representative authority
 
-Run the package migrations after upgrading. Existing authority uploads become
-**pending**, never automatically approved. Existing invitations and private
-`local`-disk documents remain in place.
+Run `php artisan migrate --force` when deploying an upgrade, before serving the new
+authority screens or starting workers. Do not edit or rerun old migrations: the
+additive migrations introduce separate review/lifecycle fields, departmental
+assignments and publication state, and remove Executive Director authority-review
+grants. Existing approved/rejected/needs-information reviews map to
+confirmed/denied/inquired; historical disabled records remain unconfirmed unless
+independently reviewed. Legacy departmental copies become private drafts and must
+be explicitly published. Existing invitations and original files remain in place.
+If views were published, merge the updated package views into your overrides.
 
 The dashboard **Messages** button opens an optional, keyboard-accessible overlay
 with a full-page alternative. Conversations have explicitly selected participants
@@ -678,19 +684,33 @@ existing private threads. Removal ends team messaging access and preserves histo
 and original authority files. Current nursing/Director group membership is checked
 for assignment-derived messaging access.
 
-Family/caregiver and professional team members submit PDF/JPG/PNG authority files
-(maximum 10 MB) from **Your team**. Executive and Administrative Directors use
-**Authority document review** to approve specific website capabilities, request
-information, reject, mark inactive, or mark superseded. Reviewers cannot review
-their own submission or a relationship in which they are either party.
+Family/caregiver and professional team members submit original PDF/JPG/PNG authority
+files (maximum **10 MiB**, 10,240 KiB) from **Your team**. Both the detected MIME
+type and client extension must match an allowed format; renaming a file does not
+make it acceptable. New originals are private under `storage/authority-documents`,
+in ward/type directories, with filenames
+`YYYY-MM-DD - Last & Last - Type - RevN.ext`. Revision numbers preserve prior files.
+Treat directory names and filenames as sensitive personal information.
 
-Rejected and needs-information submissions cannot be approved in place: upload a
-new version linked to that submission. Each version retains its original private
-file and history. A rejected replacement does not cancel another still-effective
-approval. Removing a team relationship ends access and preserves its documents;
+Only members of the exact **Administrative Director** group with the live review
+permission can use **Authority document review**; Executive Director membership
+alone does not qualify. Reviewers cannot review their own submission or a
+relationship in which they are either party. Review decisions are **Confirm**,
+**Deny**, and **Inquire** (request information), each requiring a reason.
+Independently, lifecycle changes are **Active**, **Inactive**, or **Superseded**,
+also requiring a reason. A lifecycle change never silently confirms a document.
+Review, revision, and metadata-only audit history are restricted to appropriate
+independent reviewers, not disclosed to ordinary team or departmental staff.
+Confirmation records a website review; it does **not establish legal authority**.
+A power-of-attorney representative is an **agent**, not a guardian.
+
+Denied submissions require a new linked version; an inquiry may receive a further
+review or a new version. Each version retains its original private
+file and history. A denied replacement does not cancel another still-effective
+confirmation. Removing a team relationship ends access and preserves its documents;
 joining again does not reactivate suspended or terminated approvals.
 
-Approval selects exact `module.action` capabilities grouped into administrative,
+Confirmation selects exact `module.action` capabilities grouped into administrative,
 healthcare, financial, and messaging/contact domains, with effective and optional
 expiration dates. These are **person-facing** capabilities, not staff/system
 privileges. Healthcare disclosure authority does not expose internal clinical
@@ -718,22 +738,64 @@ guardianship, conservatorship, or power of attorney. No blanket account restrict
 needs to be “restored”: the adult keeps their ordinary role-based permissions
 throughout, and independently effective representative grants remain separate.
 
-Directors may separately share a minimum-necessary healthcare summary and
-limitations with Medical/Nursing, or financial summary and billing/payment
-limitations with Finance, with the authority's effective dates and a separately
-uploaded redacted copy. Originals are retained unchanged. Each department's
-MFA-protected dashboard exposes only shares for its department; the original
-authority file and other department's material are not available there. Access
-is checked on every view and download and ends immediately when the authority
-expires, becomes inactive/suspended/revoked/superseded, or the team relationship
-ends. Share notifications contain no authority or document details.
+Administrative Directors prepare separate minimum-necessary **healthcare authority
+summaries and healthcare limitations** for Medical/Nursing and **financial authority
+summaries and billing/payment limitations** for Finance. Each disclosure has
+effective/expiration dates and a separately uploaded **redacted PDF** (maximum
+10 MiB; matching PDF MIME type and extension required). Saving a draft does not
+publish it or notify anyone. Publication is an explicit action; original evidence
+is never modified or disclosed. Review draft contents and redaction carefully
+before publication.
+
+Departmental access is individual and assignment-scoped, not department-wide:
+the currently assigned nurse or financial staff member uses their own
+MFA-authenticated account to read a published, currently effective disclosure.
+Membership alone, an assignment alone, or an unpublished draft grants no access.
+Reassignment/removal invalidates old recipients' access. Every view/download
+rechecks assignment, publication, document confirmation/lifecycle, dates, and the
+active website relationship. Access ends immediately on expiration, inactive,
+suspended, revoked or superseded authority, or relationship removal. Neither
+original evidence nor review comments nor another department's disclosure is
+available through a departmental dashboard. Notifications contain no authority
+summary, limitations, original filenames, or document details.
+
+### Disclosure delivery operations
+
+The package registers `secure-access:sync-authority-disclosures`. Schedule it in the
+host application's `routes/console.php` to reevaluate future-effective publications,
+expired grants, and delivery eligibility:
+
+```php
+use Illuminate\Support\Facades\Schedule;
+
+Schedule::command('secure-access:sync-authority-disclosures')
+    ->everyMinute()
+    ->withoutOverlapping();
+```
+
+Run Laravel's scheduler every minute (for example, `php artisan schedule:run`
+from the host's cron service), or supervise `php artisan schedule:work`. The package
+does not install host cron entries. Configure a durable production queue connection
+and supervise `php artisan queue:work`; restart workers with `php artisan queue:restart`
+after deployment. A `sync` queue executes immediately and is useful for development,
+but does not replace the scheduler for future-effective delivery. Provision any
+queue backend tables required by your host configuration, monitor failed jobs,
+and retry failures after fixing the cause. Use
+`php artisan secure-access:sync-authority-disclosures` for an operational catch-up.
+
+Delivery jobs recheck current publication, revision, assignment and authority before
+granting access or notifying a recipient. Repeated synchronization is idempotent;
+stale queued deliveries must not recreate access for replaced assignments or drafts.
+Missed scheduler/worker execution may delay delivery, but never extends an expired
+recipient's authorization: reads and downloads always perform live checks.
 
 Authority actions have a metadata-only audit trail. Review comments are encrypted
 and visible only in restricted review history, not copied into audit payloads,
 notifications, or URLs. Department summaries and limitations are encrypted at
 rest; access, downloads, shares, and decisions are audited. Original and redacted
-files remain on the private `local` disk; do not
-serve that directory publicly. Protect `APP_KEY`, backups, logs, and database
+files remain in private storage; do not create a public symlink, expose the
+authority directory through your web server, or use a public object-storage ACL.
+Protect `APP_KEY`, backups, logs, and database
 access in the host application. Configure a documented retention and deletion
 policy outside this workflow. Website approval/revocation controls website access;
 it does not create or terminate legal authority, provide legal advice, or certify

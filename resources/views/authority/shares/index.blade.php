@@ -4,7 +4,8 @@
 @section('header', __('Shared authority information'))
 
 @section('content')
-    <p class="sa-text">{{ __('Only authority materials specifically shared with your department are available here. Access ends immediately when authority is inactive, expired, revoked, suspended, or the website relationship ends.') }}</p>
+    <p class="sa-text">{{ __('Only published, currently effective disclosures for your current individual assignment are available here. Department membership alone does not grant access. Drafts, original evidence, review comments, and other departments’ disclosures are not available.') }}</p>
+    <p class="sa-text">{{ __('Access ends when your assignment changes, authority or disclosure expires, authority becomes inactive, suspended, revoked or superseded, or the website relationship ends.') }}</p>
     <section class="sa-section">
         @forelse ($items as $share)
             <p class="sa-text">

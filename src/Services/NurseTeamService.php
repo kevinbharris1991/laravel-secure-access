@@ -8,13 +8,14 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use SecureAccess\Authorization\AccessControl;
 use SecureAccess\Models\TeamMember;
+use SecureAccess\Models\DepartmentAssignment;
 use SecureAccess\SecureAccess;
 
 class NurseTeamService
 {
     public function authorize(Model $actor): void
     {
-        abort_unless(app(AccessControl::class)->isMember($actor, 'administrative-director'), 403);
+        app(DepartmentAssignmentService::class)->authorize($actor);
     }
 
     public function eligibleNurses(): Builder
@@ -59,6 +60,7 @@ class NurseTeamService
                 ->where('team_member_id', $nurseId)->lockForUpdate()->first();
             if ($relationship && $relationship->ended_at === null
                 && $relationship->nurse_assigned_by === (string) $actor->getKey()) {
+                app(DepartmentAssignmentService::class)->assign($actor, $adultId, 'medical-nursing', $nurseId);
                 return $relationship;
             }
             if (! $relationship) {
@@ -72,6 +74,7 @@ class NurseTeamService
                 'nurse_assigned_by' => (string) $actor->getKey(), 'nurse_assigned_at' => now(),
             ])->save();
             $this->audit($actor, $relationship, 'assigned');
+            app(DepartmentAssignmentService::class)->assign($actor, $adultId, 'medical-nursing', $nurseId);
 
             return $relationship;
         });
@@ -92,6 +95,11 @@ class NurseTeamService
             }
             app(AuthorityReviewService::class)->endRelationship($actor, $relationship);
             $this->audit($actor, $relationship, 'removed');
+            $assignment = DepartmentAssignment::query()->where('ward_id', $relationship->self_advocate_id)
+                ->where('department', 'medical-nursing')->where('assignee_id', $relationship->team_member_id)->first();
+            if ($assignment) {
+                app(DepartmentAssignmentService::class)->remove($actor, $assignment);
+            }
         });
     }
 

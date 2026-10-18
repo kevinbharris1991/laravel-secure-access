@@ -49,7 +49,7 @@
                 @forelse ($member['authority_documents'] as $document)
                     <p class="sa-text">
                         {{ __(ucwords(str_replace('_', ' ', $document['type']))) }}:
-                        <a class="sa-link" href="{{ route('secure-access.authority.show', $document['id']) }}">{{ __('View document and review history') }}</a>
+                        <a class="sa-link" href="{{ route('secure-access.authority.show', $document['id']) }}">{{ __('View authority document') }}</a>
                         — {{ $document['status_label'] }}
                     </p>
                 @empty
@@ -65,8 +65,10 @@
                                 <option value="{{ $type }}" @selected(old('type') === $type)>{{ __(ucwords(str_replace('_', ' ', $type))) }}</option>
                             @endforeach
                         </select>
-                        <label class="sa-label sa-mt-4" for="authority-document-{{ $member['id'] }}">{{ __('Upload document (PDF, JPG, or PNG; max 10 MB)') }}</label>
-                        <input class="sa-input" id="authority-document-{{ $member['id'] }}" type="file" name="document" accept=".pdf,.jpg,.jpeg,.png" required>
+                        <p class="sa-text">{{ __('A power-of-attorney agent is not a guardian. Uploading or confirming a document does not establish legal authority or grant website permissions.') }}</p>
+                        <label class="sa-label sa-mt-4" for="authority-document-{{ $member['id'] }}">{{ __('Upload original authority document (PDF, JPG, or PNG; maximum 10 MiB)') }}</label>
+                        <input class="sa-input" id="authority-document-{{ $member['id'] }}" type="file" name="document" accept=".pdf,.jpg,.jpeg,.png" aria-describedby="authority-help-{{ $member['id'] }}" required>
+                        <p class="sa-text" id="authority-help-{{ $member['id'] }}">{{ __('Both the file extension and detected MIME type must match an allowed format. Originals remain private; departments receive only separately published redacted PDFs. The server stores originals by ward and authority type with a revision number; do not rename a file to bypass format checks.') }}</p>
                         <button class="sa-btn sa-mt-4" type="submit">{{ __('Attach authority document') }}</button>
                     </form>
                 @endif

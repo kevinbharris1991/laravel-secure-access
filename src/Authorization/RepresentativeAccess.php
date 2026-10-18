@@ -46,8 +46,11 @@ class RepresentativeAccess
     public function grants(TeamMember $relationship): Builder
     {
         return TeamAuthorityDocument::query()->where('team_member_id', $relationship->getKey())
+            ->where('review_decision', 'confirmed')
+            ->where('lifecycle_status', 'active')
             ->where('status', 'approved')
-            ->where(fn ($q) => $q->whereNull('effective_at')->orWhere('effective_at', '<=', now()))
+            ->whereHas('relationship', fn ($query) => $query->whereNull('ended_at'))
+            ->whereNotNull('effective_at')->where('effective_at', '<=', now())
             ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()));
     }
 

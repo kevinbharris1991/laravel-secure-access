@@ -6,6 +6,7 @@
 @section('content')
     <section class="sa-section">
         <p class="sa-text">{{ __('Assign an existing nursing staff member to a self advocate’s team. This does not grant representative authority or change account roles. The assigning director becomes a team messaging contact.') }}</p>
+        <p class="sa-text">{{ __('One current nurse receives published healthcare disclosures for each self-advocate. Reassignment removes the previous recipient’s disclosure access. Nursing membership alone does not grant access; private drafts, original evidence, financial summaries, and review history are never disclosed.') }}</p>
         @if ($errors->any())
             <ul role="alert">
                 @foreach ($errors->all() as $error)
@@ -15,18 +16,18 @@
         @endif
         <form method="POST" action="{{ route('secure-access.nursing.store') }}">
             @csrf
-            <label for="self_advocate_id">{{ __('Self advocate') }}</label>
-            <select id="self_advocate_id" name="self_advocate_id" required>
+            <label class="sa-label" for="self_advocate_id">{{ __('Self advocate') }}</label>
+            <select class="sa-input" id="self_advocate_id" name="self_advocate_id" required>
                 <option value="">{{ __('Select a self advocate') }}</option>
                 @foreach ($adults as $adult)
-                    <option value="{{ $adult['id'] }}">{{ $adult['name'] }} (#{{ $adult['id'] }})</option>
+                    <option value="{{ $adult['id'] }}" @selected(old('self_advocate_id') === $adult['id'])>{{ $adult['name'] }} (#{{ $adult['id'] }})</option>
                 @endforeach
             </select>
-            <label for="nurse_id">{{ __('Nursing staff member') }}</label>
-            <select id="nurse_id" name="nurse_id" required>
+            <label class="sa-label" for="nurse_id">{{ __('Nursing staff member') }}</label>
+            <select class="sa-input" id="nurse_id" name="nurse_id" required>
                 <option value="">{{ __('Select a nurse') }}</option>
                 @foreach ($nurses as $nurse)
-                    <option value="{{ $nurse['id'] }}">{{ $nurse['name'] }} (#{{ $nurse['id'] }})</option>
+                    <option value="{{ $nurse['id'] }}" @selected(old('nurse_id') === $nurse['id'])>{{ $nurse['name'] }} (#{{ $nurse['id'] }})</option>
                 @endforeach
             </select>
             <button class="sa-btn" type="submit">{{ __('Assign nurse') }}</button>
