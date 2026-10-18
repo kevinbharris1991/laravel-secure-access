@@ -36,7 +36,11 @@ class TeamController extends Controller
                 $otherUser = $invitations->user($isSelfAdvocate ? $member->team_member_id : $member->self_advocate_id);
                 $otherRole = $isSelfAdvocate ? $member->team_member_role : 'self_advocate';
                 $label = $role === 'self_advocate'
-                    ? ($otherRole === 'professional' ? __('Staff member') : __('Loved one'))
+                    ? match ($otherRole) {
+                        'professional' => __('Staff member'),
+                        'nurse' => __('Nurse'),
+                        default => __('Loved one'),
+                    }
                     : ($role === 'professional' ? __('Client') : __('Loved one'));
 
                 return [

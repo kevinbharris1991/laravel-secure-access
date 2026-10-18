@@ -107,6 +107,18 @@ class NurseTeamTest extends TestCase
         $this->assertDatabaseCount('secure_access_team_members', 0);
     }
 
+    public function test_adult_team_page_labels_assigned_staff_as_nurse_instead_of_loved_one(): void
+    {
+        $director = $this->user('director', null, 'administrative-director');
+        $adult = $this->user('adult', 'self_advocate');
+        $nurse = $this->user('nursingcolleague', null, 'medical-nursing');
+        app(NurseTeamService::class)->assign($director, (string) $adult->id, (string) $nurse->id);
+        $this->login($adult);
+        $this->get(route('secure-access.team.index'))->assertOk()
+            ->assertSee('Nurse: nursingcolleague')->assertDontSee('Loved one: nursingcolleague');
+        $this->assertNull($nurse->refresh()->registration_role);
+    }
+
     public function test_duplicate_active_voluntary_membership_preserves_role_and_new_director_can_assume_contact(): void
     {
         $director = $this->user('director', null, 'administrative-director');
