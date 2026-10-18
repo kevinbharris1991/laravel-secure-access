@@ -37,7 +37,9 @@ class DashboardController extends Controller
         return view('secure-access::dashboard.index', [
             'groups' => $groups,
             'staffPermission' => $staffPermission,
-            'canReviewAuthority' => app(AccessControl::class)->isMember($user, 'administrative-director'),
+            'canReviewAuthority' => app(AccessControl::class)->allows($user, 'authority_documents.review_all'),
+            'canViewHealthcareAuthority' => app(AccessControl::class)->allows($user, 'authority_documents.healthcare.read_all'),
+            'canViewFinancialAuthority' => app(AccessControl::class)->allows($user, 'authority_documents.financial.read_all'),
             'canManageTeam' => in_array($user?->registration_role, ['self_advocate', 'family_caregiver', 'professional'], true),
             'campItems' => config('secure-access-acl.enabled') ? Modules::visible($user) : [],
             'items' => $dashboard->resolveFor($user, [

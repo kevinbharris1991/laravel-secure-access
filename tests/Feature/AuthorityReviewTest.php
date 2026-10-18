@@ -6,6 +6,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Notification;
 use SecureAccess\Authorization\RepresentativeAccess;
 use SecureAccess\Models\AccessGroup;
 use SecureAccess\Models\AuthorityDocumentAudit;
@@ -28,6 +29,7 @@ class AuthorityReviewTest extends TestCase
     {
         parent::setUp();
         Storage::fake('local');
+        Notification::fake();
         $this->representative = $this->account('representative', 'professional');
         $this->adult = $this->account('adult', 'self_advocate');
         $this->reviewer = $this->account('reviewer', 'professional');
@@ -112,20 +114,50 @@ class AuthorityReviewTest extends TestCase
         $this->assertStringNotContainsString('sensitive-adult-name', $audit->toJson());
     }
 
-    public function test_only_exact_director_membership_can_review_not_other_manager_or_group_name(): void
+    public function test_executive_directors_and_administrative_directors_can_review_but_lookalike_groups_cannot(): void
     {
         $document = $this->submit();
-        $manager = $this->account('manager', 'professional');
-        $manager->accessGroups()->attach(AccessGroup::where('key', 'executive-director')->firstOrFail());
-        $manager->accessGroups()->attach(AccessGroup::create(['key' => 'lookalike', 'name' => 'Administrative Director']));
-        $this->login($manager);
+        $executive = $this->account('executive', 'professional');
+        $executive->accessGroups()->attach(AccessGroup::where('key', 'executive-director')->firstOrFail());
+        $this->login($executive);
+        $this->get(route('secure-access.authority.index'))->assertOk()->assertSee('Document #'.$document->id);
+        $this->decision($document, 'approved')->assertRedirect();
+        $this->assertSame('approved', $document->fresh()->status);
+
+        $pending = $this->submit();
+        $imposter = $this->account('lookalike-director', 'professional');
+        $imposter->accessGroups()->attach(AccessGroup::create(['key' => 'lookalike', 'name' => 'Administrative Director']));
+        $this->login($imposter);
         $this->get(route('secure-access.authority.index'))->assertForbidden();
-        $this->decision($document, 'approved')->assertForbidden();
-        $this->assertSame('pending', $document->fresh()->status);
+        $this->decision($pending, 'approved')->assertForbidden();
+        $this->assertSame('pending', $pending->fresh()->status);
         $this->login($this->reviewer);
-        $this->get(route('secure-access.authority.index'))->assertOk()->assertSee('Document #'.$document->id)
+        $this->get(route('secure-access.authority.index'))->assertOk()->assertSee('Document #'.$pending->id)
             ->assertHeader('cache-control', 'no-store, private')
             ->assertHeader('x-content-type-options', 'nosniff');
+    }
+
+    public function test_reviewer_can_mark_documents_inactive_or_superseded_with_encrypted_reason_and_audit(): void
+    {
+        $inactive = $this->submit();
+        $this->login($this->reviewer);
+        $this->decision($inactive, 'inactive')->assertRedirect();
+        $this->assertSame('inactive', $inactive->fresh()->status);
+        $this->assertSame('Private review rationale', $inactive->fresh()->review_history[0]['comments']);
+        $this->assertNull($inactive->fresh()->approved_scopes);
+        $inactiveAudit = $inactive->audits()->where('action', 'reviewed')->firstOrFail();
+        $this->assertSame((string) $this->reviewer->id, $inactiveAudit->actor_id);
+        $this->assertSame(['from_status' => 'pending', 'to_status' => 'inactive'], $inactiveAudit->metadata);
+        $this->assertStringNotContainsString('Private review rationale', $inactiveAudit->toJson());
+        Notification::assertSentOnDemand(\SecureAccess\Notifications\AuthorityReviewNotification::class);
+        Storage::disk('local')->assertExists($inactive->path);
+
+        $superseded = $this->submit(['type' => 'conservatorship']);
+        $this->login($this->reviewer);
+        $this->decision($superseded, 'superseded')->assertRedirect();
+        $this->assertSame('superseded', $superseded->fresh()->status);
+        $this->assertSame('superseded', $superseded->fresh()->review_history[0]['decision']);
+        Storage::disk('local')->assertExists($superseded->path);
     }
 
     public function test_participants_and_submitter_cannot_review_even_with_director_membership(): void

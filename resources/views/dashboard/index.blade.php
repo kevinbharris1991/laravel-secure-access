@@ -14,6 +14,18 @@
             <a class="sa-btn" href="{{ route('secure-access.nursing.index') }}">{{ __('Assign or remove a nurse') }}</a>
         </div>
     @endif
+    @if ($canViewHealthcareAuthority)
+        <div class="sa-section">
+            <h2 class="sa-title">{{ __('Shared healthcare authority') }}</h2>
+            <a class="sa-btn" href="{{ route('secure-access.authority.shares.department', 'medical-nursing') }}">{{ __('Open Medical/Nursing shares') }}</a>
+        </div>
+    @endif
+    @if ($canViewFinancialAuthority)
+        <div class="sa-section">
+            <h2 class="sa-title">{{ __('Shared financial authority') }}</h2>
+            <a class="sa-btn" href="{{ route('secure-access.authority.shares.department', 'finance-accounting') }}">{{ __('Open Finance shares') }}</a>
+        </div>
+    @endif
     @if (in_array(\SecureAccess\SecureAccess::guard()->user()?->registration_role, ['family_caregiver', 'professional'], true))
         <div class="sa-section">
             <h2 class="sa-title">{{ __('Representative access') }}</h2>

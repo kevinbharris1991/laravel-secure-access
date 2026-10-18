@@ -22,6 +22,7 @@ class CampDefaults
                     'grant_applications.create_all', 'grant_applications.read_all', 'grant_applications.update_all',
                     'grant_applications.approve_all', 'public_content.manage_all', 'board_documents.manage_all',
                     'groups.manage_all', 'permissions.manage_all', 'invitations.create_all',
+                    'authority_documents.review_all',
                 ],
             ],
             'administrative-director' => [
@@ -31,7 +32,7 @@ class CampDefaults
                     'rosters.manage_all', 'cabins.manage_all', 'policies.manage_all', 'onboarding.manage_all',
                     'registrations.manage_all', 'waivers.manage_all', 'consents.manage_all', 'households.manage_all',
                     'compliance.read_all', 'administrative_reports.export_all', 'form_templates.manage_all',
-                    'groups.manage_all', 'invitations.create_all',
+                    'groups.manage_all', 'invitations.create_all', 'authority_documents.review_all',
                 ],
             ],
             'medical-nursing' => [
@@ -39,6 +40,7 @@ class CampDefaults
                 'permissions' => [
                     'medications.manage_all', 'medication_stock.manage_all', 'dosages.manage_all',
                     'health_profiles.manage_all', 'clinical_protocols.manage_all', 'clinical_incidents.manage_all',
+                    'authority_documents.healthcare.read_all',
                 ],
             ],
             'behavioral-support' => [
@@ -99,6 +101,7 @@ class CampDefaults
                     'payroll.manage_all', 'time_cards.approve_all', 'grant_funds.manage_all',
                     'grant_applications.read_all', 'grant_applications.update_all',
                     'financial_reports.export_all',
+                    'authority_documents.financial.read_all',
                 ],
             ],
             'guest' => [

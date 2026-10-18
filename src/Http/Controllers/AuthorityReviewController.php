@@ -12,6 +12,7 @@ use SecureAccess\Models\TeamAuthorityDocument;
 use SecureAccess\Models\AuthorityRevocationEvidence;
 use SecureAccess\SecureAccess;
 use SecureAccess\Services\AuthorityReviewService;
+use SecureAccess\Services\AuthorityDepartmentShareService;
 
 class AuthorityReviewController extends Controller
 {
@@ -38,7 +39,11 @@ class AuthorityReviewController extends Controller
             ->header('X-Content-Type-Options', 'nosniff');
     }
 
-    public function show(TeamAuthorityDocument $document, AuthorityReviewService $reviews): Response
+    public function show(
+        TeamAuthorityDocument $document,
+        AuthorityReviewService $reviews,
+        AuthorityDepartmentShareService $shares
+    ): Response
     {
         $user = $this->user();
         abort_unless($reviews->canView($user, $document), 404);
@@ -53,6 +58,7 @@ class AuthorityReviewController extends Controller
         return response()->view('secure-access::authority.show', [
             'document' => $document,
             'canReview' => $reviews->canReview($user, $document) && $document->relationship->ended_at === null,
+            'canShare' => $shares->canShare($user, $document),
             'canResubmit' => $document->relationship->ended_at === null
                 && $document->relationship->team_member_id === (string) $user->getKey()
                 && in_array($document->status, ['rejected', 'needs_information'], true)

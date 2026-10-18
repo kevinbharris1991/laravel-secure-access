@@ -5,6 +5,7 @@ namespace SecureAccess\Services;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -14,10 +15,17 @@ use SecureAccess\Authorization\RepresentativeAccess;
 use SecureAccess\Models\AuthorityDocumentAudit;
 use SecureAccess\Models\TeamAuthorityDocument;
 use SecureAccess\Models\TeamMember;
+use SecureAccess\Notifications\AuthorityReviewNotification;
+use SecureAccess\SecureAccess;
 
 class AuthorityReviewService
 {
     public function isReviewer(Model $user): bool
+    {
+        return app(AccessControl::class)->allows($user, 'authority_documents.review_all');
+    }
+
+    public function isAdministrativeDirector(Model $user): bool
     {
         return app(AccessControl::class)->isMember($user, 'administrative-director');
     }
@@ -98,7 +106,7 @@ class AuthorityReviewService
     public function review(Model $user, TeamAuthorityDocument $document, array $data): void
     {
         $data = Validator::make($data, [
-            'decision' => ['required', Rule::in(['approved', 'rejected', 'needs_information'])],
+            'decision' => ['required', Rule::in(['approved', 'rejected', 'needs_information', 'inactive', 'superseded'])],
             'comments' => ['required', 'string', 'max:10000'],
             'approved_scopes' => ['required_if:decision,approved', 'array'],
             'approved_scopes.*' => ['string', 'distinct'],
@@ -113,8 +121,9 @@ class AuthorityReviewService
             $this->expireLocked($relationship, $user);
             $document->refresh();
             $decision = $data['decision'];
-            if ($relationship->ended_at !== null
-                || $document->status !== 'pending') {
+            $allowedStatuses = in_array($decision, ['inactive', 'superseded'], true)
+                ? ['pending', 'approved'] : ['pending'];
+            if ($relationship->ended_at !== null || ! in_array($document->status, $allowedStatuses, true)) {
                 throw ValidationException::withMessages(['decision' => __('This document cannot receive that decision.')]);
             }
             if (trim($data['comments'] ?? '') === '') {
@@ -153,14 +162,25 @@ class AuthorityReviewService
                 }
                 // A failed replacement never changes an existing approval.
                 foreach ($priorApprovals as $prior) {
-                    $prior->forceFill(['status' => 'superseded'])->save();
+                    $history = $prior->review_history ?? [];
+                    $history[] = [
+                        'decision' => 'superseded', 'comments' => $data['comments'],
+                        'reviewed_by' => (string) $user->getKey(), 'reviewed_at' => now()->toIso8601String(),
+                        'approved_scopes' => $prior->approved_scopes ?? [],
+                        'effective_at' => $prior->effective_at?->toIso8601String(),
+                        'expires_at' => $prior->expires_at?->toIso8601String(),
+                    ];
+                    $prior->forceFill(['status' => 'superseded', 'review_history' => $history])->save();
                     $this->audit($prior, $user, 'superseded', ['from_status' => 'approved', 'to_status' => 'superseded']);
                 }
                 $updates = ['approved_scopes' => $scopes, 'effective_at' => $effectiveAt, 'expires_at' => $expiresAt];
             }
             $history = $document->review_history ?? [];
             $history[] = ['decision' => $decision, 'comments' => $data['comments'],
-                'reviewed_by' => (string) $user->getKey(), 'reviewed_at' => now()->toIso8601String()];
+                'reviewed_by' => (string) $user->getKey(), 'reviewed_at' => now()->toIso8601String(),
+                'approved_scopes' => $decision === 'approved' ? ($updates['approved_scopes'] ?? []) : ($document->approved_scopes ?? []),
+                'effective_at' => $decision === 'approved' ? $updates['effective_at']->toIso8601String() : $document->effective_at?->toIso8601String(),
+                'expires_at' => $decision === 'approved' ? $updates['expires_at']?->toIso8601String() : $document->expires_at?->toIso8601String()];
             $from = $document->status;
             $document->forceFill($updates + [
                 'status' => $decision, 'reviewed_by' => (string) $user->getKey(),
@@ -168,6 +188,22 @@ class AuthorityReviewService
             ])->save();
             $this->audit($document, $user, 'reviewed', ['from_status' => $from, 'to_status' => $decision]);
         });
+
+        $reviewed = TeamAuthorityDocument::query()->with('relationship')->findOrFail($document->getKey());
+        $recipientIds = array_unique(array_filter([
+            $reviewed->submitted_by,
+            $reviewed->relationship->team_member_id,
+            $reviewed->relationship->self_advocate_id,
+        ]));
+        foreach (SecureAccess::newUserQuery()->whereKey($recipientIds)->get() as $recipient) {
+            if ((string) $recipient->getKey() === (string) $user->getKey()) {
+                continue;
+            }
+            $email = $recipient->getAttribute('email');
+            if (is_string($email) && $email !== '') {
+                Notification::route('mail', $email)->notify(new AuthorityReviewNotification);
+            }
+        }
     }
 
     public function expire(TeamMember $relationship, ?Model $actor = null): void
@@ -193,7 +229,7 @@ class AuthorityReviewService
             $relationship = TeamMember::query()->whereKey($relationship->getKey())->lockForUpdate()->firstOrFail();
             abort_unless(
                 in_array((string) $user->getKey(), [$relationship->self_advocate_id, $relationship->team_member_id], true)
-                    || ($relationship->getAttribute('nurse_assigned_by') !== null && $this->isReviewer($user)),
+                    || ($relationship->getAttribute('nurse_assigned_by') !== null && $this->isAdministrativeDirector($user)),
                 404
             );
             if ($relationship->ended_at !== null) {
@@ -218,7 +254,7 @@ class AuthorityReviewService
         AuthorityDocumentAudit::query()->create([
             'document_id' => $document->getKey(), 'team_member_id' => $document->team_member_id,
             'actor_id' => $actor ? (string) $actor->getKey() : null, 'action' => $action,
-            'metadata' => array_intersect_key($metadata, array_flip(['from_status', 'to_status', 'evidence_id'])),
+            'metadata' => array_intersect_key($metadata, array_flip(['from_status', 'to_status', 'evidence_id', 'share_id', 'department'])),
         ]);
     }
 }
