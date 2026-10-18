@@ -56,7 +56,7 @@ class TeamAuthorityDocumentTest extends TestCase
             }
 
             $this->assertSame(3, TeamAuthorityDocument::query()->where('team_member_id', $relationship->getKey())->count());
-            $this->assertCount(3, Storage::disk('local')->allFiles('secure-access/authority-documents'));
+            $this->assertCount(($index + 1) * 3, Storage::disk('local')->allFiles('secure-access/authority-documents'));
         }
     }
 
@@ -83,7 +83,7 @@ class TeamAuthorityDocumentTest extends TestCase
         $this->actingAs($client, config('secure-access.guard'))->withSession([
             SecureAccess::MFA_VERIFIED_SESSION_KEY => (string) $client->getKey(),
         ]);
-        $this->get($url)->assertOk()->assertHeader('content-disposition', 'attachment; filename=guardianship.pdf');
+        $this->get($url)->assertOk()->assertHeader('content-disposition', 'attachment; filename=authority-document.pdf');
 
         $unrelatedClient = $this->createUser([
             'username' => 'unrelated',
@@ -127,7 +127,7 @@ class TeamAuthorityDocumentTest extends TestCase
         $this->assertSame([], Storage::disk('local')->allFiles());
     }
 
-    public function test_removing_team_relationship_also_removes_authority_files(): void
+    public function test_removing_team_relationship_preserves_evidence_and_suspends_pending_documents(): void
     {
         Storage::fake('local');
         $professional = $this->teamUser('professional', 'professional');
@@ -149,7 +149,9 @@ class TeamAuthorityDocumentTest extends TestCase
         $this->delete(route('secure-access.team.relationships.destroy', $relationship))
             ->assertRedirect(route('secure-access.team.index'));
 
-        $this->assertSame(0, TeamAuthorityDocument::count());
-        Storage::disk('local')->assertMissing($path);
+        $this->assertSame(1, TeamAuthorityDocument::count());
+        $this->assertSame('suspended', TeamAuthorityDocument::firstOrFail()->status);
+        $this->assertNotNull($relationship->fresh()->ended_at);
+        Storage::disk('local')->assertExists($path);
     }
 }

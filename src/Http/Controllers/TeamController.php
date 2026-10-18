@@ -2,38 +2,45 @@
 
 namespace SecureAccess\Http\Controllers;
 
-use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use SecureAccess\Models\TeamAuthorityDocument;
 use SecureAccess\Models\TeamInvitation;
 use SecureAccess\Models\TeamMember;
 use SecureAccess\SecureAccess;
 use SecureAccess\Services\TeamInvitationService;
+use SecureAccess\Services\AuthorityReviewService;
 
 class TeamController extends Controller
 {
-    public function index(TeamInvitationService $invitations): View
+    public function index(TeamInvitationService $invitations): Response
     {
         $user = $this->authorizeTeamAccess();
         $role = $user->getAttribute('registration_role');
         $team = TeamMember::query()
-            ->where('self_advocate_id', (string) $user->getKey())
-            ->orWhere('team_member_id', (string) $user->getKey())
+            ->whereNull('ended_at')
+            ->where(fn ($query) => $query->where('self_advocate_id', (string) $user->getKey())
+                ->orWhere('team_member_id', (string) $user->getKey()))
             ->with('authorityDocuments')
             ->get()
             ->map(function (TeamMember $member) use ($user, $role, $invitations) {
+                app(AuthorityReviewService::class)->expire($member, $user);
+                $member->load('authorityDocuments');
                 $isSelfAdvocate = $member->self_advocate_id === (string) $user->getKey();
                 $otherUser = $invitations->user($isSelfAdvocate ? $member->team_member_id : $member->self_advocate_id);
                 $otherRole = $isSelfAdvocate ? $member->team_member_role : 'self_advocate';
                 $label = $role === 'self_advocate'
-                    ? ($otherRole === 'professional' ? __('Staff member') : __('Loved one'))
+                    ? match ($otherRole) {
+                        'professional' => __('Staff member'),
+                        'nurse' => __('Nurse'),
+                        default => __('Loved one'),
+                    }
                     : ($role === 'professional' ? __('Client') : __('Loved one'));
 
                 return [
@@ -49,6 +56,8 @@ class TeamController extends Controller
                             'id' => $document->getKey(),
                             'type' => $document->type,
                             'name' => $document->file_name,
+                            'status' => $document->status,
+                            'status_label' => $document->statusLabel(),
                         ])
                         ->all(),
                 ];
@@ -56,7 +65,7 @@ class TeamController extends Controller
             ->filter(fn (array $member) => $member['name'] !== __('Team member'))
             ->values();
 
-        return view('secure-access::team.index', [
+        return response()->view('secure-access::team.index', [
             'role' => $role,
             'inviteeRoles' => $invitations->allowedInviteeRoles($role),
             'team' => $team,
@@ -75,7 +84,13 @@ class TeamController extends Controller
                 ->latest()
                 ->get(),
             'authorityDocumentTypes' => TeamAuthorityDocument::TYPES,
-        ]);
+            'endedAuthorityDocuments' => TeamAuthorityDocument::query()
+                ->whereHas('relationship', fn ($query) => $query->whereNotNull('ended_at')
+                    ->where(fn ($parties) => $parties->where('self_advocate_id', (string) $user->getKey())
+                        ->orWhere('team_member_id', (string) $user->getKey())))
+                ->latest()->paginate(25, ['*'], 'authority_history_page')->withQueryString(),
+        ])->header('Cache-Control', 'private, no-store')
+            ->header('X-Content-Type-Options', 'nosniff');
     }
 
     public function storeAuthorityDocument(Request $request, TeamMember $relationship): RedirectResponse
@@ -86,25 +101,10 @@ class TeamController extends Controller
         $validated = $request->validate([
             'type' => ['required', Rule::in(TeamAuthorityDocument::TYPES)],
             'document' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
+            'previous_document_id' => ['nullable', 'integer', 'min:1'],
         ]);
 
-        $file = $request->file('document');
-        $path = $file->store('secure-access/authority-documents', 'local');
-        $fileName = Str::ascii(pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME));
-        $fileName = Str::slug($fileName) ?: 'authority-document';
-        $fileName .= '.'.$file->extension();
-
-        try {
-            TeamAuthorityDocument::query()->create([
-                'team_member_id' => $relationship->getKey(),
-                'type' => $validated['type'],
-                'path' => $path,
-                'file_name' => $fileName,
-            ]);
-        } catch (\Throwable $exception) {
-            Storage::disk('local')->delete($path);
-            throw $exception;
-        }
+        app(AuthorityReviewService::class)->submit($user, $relationship, $validated, $request->file('document'));
 
         return redirect()->route('secure-access.team.index')->with('status', __('Authority document uploaded.'));
     }
@@ -113,12 +113,19 @@ class TeamController extends Controller
         TeamMember $relationship,
         TeamAuthorityDocument $document
     ): \Symfony\Component\HttpFoundation\StreamedResponse {
-        $user = $this->authorizeTeamAccess();
-        $this->authorizeAuthorityDocumentAccess($user, $relationship, $document);
+        $user = SecureAccess::guard()->user();
+        abort_unless($user instanceof Model, 403);
+        $reviews = app(AuthorityReviewService::class);
+        abort_unless((string) $document->team_member_id === (string) $relationship->getKey()
+            && $reviews->canView($user, $document), 404);
+        $reviews->expire($relationship, $user);
 
         abort_unless(Storage::disk('local')->exists($document->path), 404);
 
-        return Storage::disk('local')->download($document->path, $document->file_name);
+        $reviews->audit($document, $user, 'downloaded');
+
+        return Storage::disk('local')->download($document->path, 'authority-document.'.pathinfo($document->file_name, PATHINFO_EXTENSION),
+            ['Cache-Control' => 'private, no-store', 'X-Content-Type-Options' => 'nosniff']);
     }
 
     public function store(Request $request, TeamInvitationService $invitations): RedirectResponse
@@ -174,13 +181,17 @@ class TeamController extends Controller
             $selfAdvocate = $invitation->inviter_role === 'self_advocate' ? $inviter : $user;
             $teamMember = $invitation->inviter_role === 'self_advocate' ? $user : $inviter;
 
-            TeamMember::query()->firstOrCreate(
+            $relationship = TeamMember::query()->firstOrCreate(
                 [
                     'self_advocate_id' => (string) $selfAdvocate->getKey(),
                     'team_member_id' => (string) $teamMember->getKey(),
                 ],
                 ['team_member_role' => $teamMember->getAttribute('registration_role')]
             );
+            $relationship = TeamMember::query()->whereKey($relationship->getKey())->lockForUpdate()->firstOrFail();
+            $relationship->forceFill([
+                'ended_at' => null, 'team_member_role' => $teamMember->getAttribute('registration_role'),
+            ])->save();
 
             $invitation->forceFill(['status' => TeamInvitation::STATUS_ACCEPTED])->save();
         });
@@ -213,15 +224,10 @@ class TeamController extends Controller
             $relationship->team_member_id,
         ], true), 404);
 
-        DB::transaction(function () use ($relationship) {
-            $documents = TeamAuthorityDocument::query()->where('team_member_id', $relationship->getKey())->get();
-            foreach ($documents as $document) {
-                Storage::disk('local')->delete($document->path);
-            }
-            $relationship->delete();
-        });
+        app(AuthorityReviewService::class)->endRelationship($user, $relationship);
 
-        return redirect()->route('secure-access.team.index')->with('status', __('Team member removed.'));
+        return redirect()->route('secure-access.team.index')
+            ->with('status', __('Website relationship ended. Legal authority has not been changed.'));
     }
 
     protected function authorizeTeamAccess(): Model
@@ -237,29 +243,12 @@ class TeamController extends Controller
     {
         $role = $user->getAttribute('registration_role');
         abort_unless(
-            in_array($role, ['family_caregiver', 'professional'], true)
+            $relationship->ended_at === null
+                && in_array($role, ['family_caregiver', 'professional'], true)
                 && $relationship->team_member_id === (string) $user->getKey()
                 && $relationship->team_member_role === $role,
             404
         );
     }
 
-    protected function authorizeAuthorityDocumentAccess(
-        Model $user,
-        TeamMember $relationship,
-        TeamAuthorityDocument $document
-    ): void {
-        $userId = (string) $user->getKey();
-        $role = $user->getAttribute('registration_role');
-        $isSelfAdvocate = $userId === $relationship->self_advocate_id && $role === 'self_advocate';
-        $isTeamMember = $userId === $relationship->team_member_id
-            && $role === $relationship->team_member_role
-            && in_array($role, ['family_caregiver', 'professional'], true);
-
-        abort_unless(
-            (string) $document->team_member_id === (string) $relationship->getKey()
-                && ($isSelfAdvocate || $isTeamMember),
-            404
-        );
-    }
 }

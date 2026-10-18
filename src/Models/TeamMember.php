@@ -13,7 +13,10 @@ class TeamMember extends Model
         'self_advocate_id',
         'team_member_id',
         'team_member_role',
+        'ended_at',
     ];
+
+    protected $casts = ['ended_at' => 'datetime'];
 
     public function authorityDocuments(): HasMany
     {

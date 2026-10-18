@@ -40,6 +40,7 @@
             </div>
         </main>
 
+        @include('secure-access::messaging.overlay')
         @stack('scripts')
     </body>
 </html>

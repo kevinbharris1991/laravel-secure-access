@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
 use SecureAccess\Camp\Modules;
+use SecureAccess\Authorization\AccessControl;
 use SecureAccess\Dashboard\Dashboard;
 use SecureAccess\Dashboard\DashboardItem;
 use SecureAccess\Models\AccessGroup;
@@ -36,6 +37,7 @@ class DashboardController extends Controller
         return view('secure-access::dashboard.index', [
             'groups' => $groups,
             'staffPermission' => $staffPermission,
+            'canReviewAuthority' => app(AccessControl::class)->isMember($user, 'administrative-director'),
             'canManageTeam' => in_array($user?->registration_role, ['self_advocate', 'family_caregiver', 'professional'], true),
             'campItems' => config('secure-access-acl.enabled') ? Modules::visible($user) : [],
             'items' => $dashboard->resolveFor($user, [

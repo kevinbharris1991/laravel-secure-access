@@ -93,7 +93,8 @@ class TeamInvitationTest extends TestCase
         $this->get(route('secure-access.team.index'))->assertOk()->assertSee('Client: Client Name');
         $this->delete(route('secure-access.team.relationships.destroy', $relationship))
             ->assertRedirect(route('secure-access.team.index'));
-        $this->assertSame(0, TeamMember::count());
+        $this->assertSame(0, TeamMember::whereNull('ended_at')->count());
+        $this->assertNotNull($relationship->fresh()->ended_at);
         $this->assertSame(TeamInvitation::STATUS_ACCEPTED, $invitation->fresh()->status);
     }
 

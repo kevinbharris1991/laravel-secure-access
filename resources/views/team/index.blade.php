@@ -42,13 +42,15 @@
                 <form method="POST" action="{{ route('secure-access.team.relationships.destroy', $member['id']) }}">
                     @csrf
                     @method('DELETE')
-                    <button class="sa-btn sa-mt-4" type="submit">{{ __('Remove') }}</button>
+                    <button class="sa-btn sa-mt-4" type="submit">{{ __('End website relationship') }}</button>
                 </form>
+                <p class="sa-text">{{ __('Ending this website relationship removes representative website access. It does not revoke guardianship, conservatorship, or power of attorney. Submit evidence of legal termination for independent review.') }}</p>
                 <h3 class="sa-title sa-mt-4">{{ __('Legal authority documents') }}</h3>
                 @forelse ($member['authority_documents'] as $document)
                     <p class="sa-text">
                         {{ __(ucwords(str_replace('_', ' ', $document['type']))) }}:
-                        <a class="sa-link" href="{{ route('secure-access.team.authority-documents.download', [$member['id'], $document['id']]) }}">{{ $document['name'] }}</a>
+                        <a class="sa-link" href="{{ route('secure-access.authority.show', $document['id']) }}">{{ __('View document and review history') }}</a>
+                        — {{ $document['status_label'] }}
                     </p>
                 @empty
                     <p class="sa-text">{{ __('No authority documents have been uploaded.') }}</p>
@@ -73,6 +75,20 @@
             <p class="sa-text">{{ __('You have no team members yet.') }}</p>
         @endforelse
     </section>
+
+    @if ($endedAuthorityDocuments->isNotEmpty())
+        <section class="sa-section">
+            <h2 class="sa-title">{{ __('Authority history for ended website relationships') }}</h2>
+            <p class="sa-text">{{ __('Evidence remains available to the document parties. You can still submit evidence of legal termination for independent review.') }}</p>
+            @foreach ($endedAuthorityDocuments as $document)
+                <p class="sa-text">
+                    <a class="sa-link" href="{{ route('secure-access.authority.show', $document) }}">{{ __('Document #:id', ['id' => $document->getKey()]) }}</a>
+                    — {{ $document->statusLabel() }}
+                </p>
+            @endforeach
+            {{ $endedAuthorityDocuments->links() }}
+        </section>
+    @endif
 
     @if ($incoming->isNotEmpty())
         <section class="sa-section">
