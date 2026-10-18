@@ -54,6 +54,10 @@ Route::middleware(config('secure-access.routes.middleware', ['web']))
         });
 
         Route::middleware('secure-access.mfa')->group(function () {
+            require __DIR__.'/messaging.php';
+            require __DIR__.'/authority.php';
+            require __DIR__.'/representative.php';
+
             Route::get('dashboard', DashboardController::class)->name('dashboard');
             Route::get('dashboard/staff', [StaffController::class, 'index'])->name('staff.index');
             Route::post('dashboard/staff', [StaffController::class, 'store'])->middleware('throttle:secure-access')->name('staff.store');

@@ -119,13 +119,17 @@ class TeamInvitationService
                 if ($wasUnregistered) {
                     $selfAdvocate = $invitation->inviter_role === 'self_advocate' ? $inviter : $user;
                     $teamMember = $invitation->inviter_role === 'self_advocate' ? $user : $inviter;
-                    TeamMember::query()->firstOrCreate(
+                    $relationship = TeamMember::query()->firstOrCreate(
                         [
                             'self_advocate_id' => (string) $selfAdvocate->getKey(),
                             'team_member_id' => (string) $teamMember->getKey(),
                         ],
                         ['team_member_role' => $teamMember->getAttribute('registration_role')]
                     );
+                    $relationship = TeamMember::query()->whereKey($relationship->getKey())->lockForUpdate()->firstOrFail();
+                    $relationship->forceFill([
+                        'ended_at' => null, 'team_member_role' => $teamMember->getAttribute('registration_role'),
+                    ])->save();
                     $invitation->status = TeamInvitation::STATUS_ACCEPTED;
                 }
 

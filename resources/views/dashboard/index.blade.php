@@ -4,6 +4,18 @@
 @section('header', __('Dashboard'))
 
 @section('content')
+    @if ($canReviewAuthority)
+        <div class="sa-section">
+            <h2 class="sa-title">{{ __('Authority document review') }}</h2>
+            <a class="sa-btn" href="{{ route('secure-access.authority.index') }}">{{ __('Review queue & history') }}</a>
+        </div>
+    @endif
+    @if (in_array(\SecureAccess\SecureAccess::guard()->user()?->registration_role, ['family_caregiver', 'professional'], true))
+        <div class="sa-section">
+            <h2 class="sa-title">{{ __('Representative access') }}</h2>
+            <a class="sa-btn" href="{{ route('secure-access.representative.index') }}">{{ __('Act on behalf of someone') }}</a>
+        </div>
+    @endif
     <div class="sa-section">
         <h2 class="sa-title">{{ __('Welcome to your dashboard') }}</h2>
         <p class="sa-text">{{ __('Your available tools reflect the permissions granted by your current groups.') }}</p>

@@ -1,0 +1,61 @@
+{
+    "name": "kevinbharris1991/laravel-secure-access",
+    "description": "Login with username or any email address, account lockout after failed attempts and mandatory multi-factor authentication (SMS, TOTP, biometrics, hardware tokens) for Laravel.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": [
+        "laravel",
+        "authentication",
+        "mfa",
+        "2fa",
+        "totp",
+        "webauthn",
+        "passkeys",
+        "lockout"
+    ],
+    "require": {
+        "php": "^8.2",
+        "ext-openssl": "*",
+        "bacon/bacon-qr-code": "^2.0|^3.0",
+        "illuminate/auth": "^11.0|^12.0|^13.0",
+        "illuminate/console": "^11.0|^12.0|^13.0",
+        "illuminate/database": "^11.0|^12.0|^13.0",
+        "illuminate/filesystem": "^11.0|^12.0|^13.0",
+        "illuminate/http": "^11.0|^12.0|^13.0",
+        "illuminate/notifications": "^11.0|^12.0|^13.0",
+        "illuminate/routing": "^11.0|^12.0|^13.0",
+        "illuminate/support": "^11.0|^12.0|^13.0",
+        "illuminate/view": "^11.0|^12.0|^13.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^9.0|^10.0|^11.0",
+        "phpunit/phpunit": "^10.5|^11.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "SecureAccess\\": "/home/runner/work/laravel-secure-access/laravel-secure-access/src/",
+            "SecureAccess\\Database\\Factories\\": "/home/runner/work/laravel-secure-access/laravel-secure-access/database/factories/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "SecureAccess\\Tests\\": "/home/runner/work/laravel-secure-access/laravel-secure-access/tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit"
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "SecureAccess\\SecureAccessServiceProvider"
+            ]
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "vendor-dir": "/home/runner/work/laravel-secure-access/laravel-secure-access/vendor"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

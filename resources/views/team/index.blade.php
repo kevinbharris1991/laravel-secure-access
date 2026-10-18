@@ -48,7 +48,8 @@
                 @forelse ($member['authority_documents'] as $document)
                     <p class="sa-text">
                         {{ __(ucwords(str_replace('_', ' ', $document['type']))) }}:
-                        <a class="sa-link" href="{{ route('secure-access.team.authority-documents.download', [$member['id'], $document['id']]) }}">{{ $document['name'] }}</a>
+                        <a class="sa-link" href="{{ route('secure-access.authority.show', $document['id']) }}">{{ __('View document and review history') }}</a>
+                        — {{ __(ucwords(str_replace('_', ' ', $document['status']))) }}
                     </p>
                 @empty
                     <p class="sa-text">{{ __('No authority documents have been uploaded.') }}</p>
