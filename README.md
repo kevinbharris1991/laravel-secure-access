@@ -671,7 +671,7 @@ the adult's private conversations.
 Family/caregiver and professional team members submit PDF/JPG/PNG authority files
 (maximum 10 MB) from **Your team**. Administrative Directors use **Authority
 document review** to verify specific website capabilities, request information,
-reject, revoke, or record supersession/expiration. Reviewers cannot review their
+reject, or record supersession/expiration. Reviewers cannot review their
 own submission or a relationship in which they are either party.
 
 Rejected and needs-information submissions cannot be approved in place: upload a
