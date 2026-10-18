@@ -679,10 +679,10 @@ and original authority files. Current nursing/Director group membership is check
 for assignment-derived messaging access.
 
 Family/caregiver and professional team members submit PDF/JPG/PNG authority files
-(maximum 10 MB) from **Your team**. Administrative Directors use **Authority
-document review** to verify specific website capabilities, request information,
-reject, or record supersession/expiration. Reviewers cannot review their
-own submission or a relationship in which they are either party.
+(maximum 10 MB) from **Your team**. Executive and Administrative Directors use
+**Authority document review** to approve specific website capabilities, request
+information, reject, mark inactive, or mark superseded. Reviewers cannot review
+their own submission or a relationship in which they are either party.
 
 Rejected and needs-information submissions cannot be approved in place: upload a
 new version linked to that submission. Each version retains its original private
@@ -718,9 +718,21 @@ guardianship, conservatorship, or power of attorney. No blanket account restrict
 needs to be “restored”: the adult keeps their ordinary role-based permissions
 throughout, and independently effective representative grants remain separate.
 
+Directors may separately share a minimum-necessary healthcare summary and
+limitations with Medical/Nursing, or financial summary and billing/payment
+limitations with Finance, with the authority's effective dates and a separately
+uploaded redacted copy. Originals are retained unchanged. Each department's
+MFA-protected dashboard exposes only shares for its department; the original
+authority file and other department's material are not available there. Access
+is checked on every view and download and ends immediately when the authority
+expires, becomes inactive/suspended/revoked/superseded, or the team relationship
+ends. Share notifications contain no authority or document details.
+
 Authority actions have a metadata-only audit trail. Review comments are encrypted
 and visible only in restricted review history, not copied into audit payloads,
-notifications, or URLs. Original files remain on the private `local` disk; do not
+notifications, or URLs. Department summaries and limitations are encrypted at
+rest; access, downloads, shares, and decisions are audited. Original and redacted
+files remain on the private `local` disk; do not
 serve that directory publicly. Protect `APP_KEY`, backups, logs, and database
 access in the host application. Configure a documented retention and deletion
 policy outside this workflow. Website approval/revocation controls website access;

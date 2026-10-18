@@ -41,11 +41,11 @@
                 @csrf
                 <label class="sa-label" for="decision">{{ __('Decision') }}</label>
                 <select class="sa-input" id="decision" name="decision" required>
-                    @foreach (['approved', 'rejected', 'needs_information'] as $decision)
+                    @foreach (['approved', 'rejected', 'needs_information', 'inactive', 'superseded'] as $decision)
                         <option value="{{ $decision }}" @selected(old('decision') === $decision)>{{ __(ucwords(str_replace('_', ' ', $decision))) }}</option>
                     @endforeach
                 </select>
-                @if ($document->status === 'pending')
+                @if ($document->status === 'pending' && old('decision', 'approved') === 'approved')
                     <p class="sa-text">{{ __('For approval, select only the capabilities supported by the evidence and specify the effective date. Set an expiry date if the authority is time-limited; otherwise leave expiry blank.') }}</p>
                     <p class="sa-text">{{ __('A replacement for currently active authority must take effect immediately so existing access is not interrupted.') }}</p>
                     <p class="sa-text">{{ __('Select the same module’s read capability for update, payment, cancellation, submission, or commitment actions so the representative can open the record. No capabilities are added automatically.') }}</p>
@@ -85,6 +85,47 @@
                 <label class="sa-label" for="comments">{{ __('Comments / reason (required; visible only to reviewers and the relationship participants)') }}</label>
                 <textarea class="sa-input" id="comments" name="comments" required maxlength="10000">{{ old('comments') }}</textarea>
                 <button class="sa-btn sa-mt-4" type="submit">{{ __('Record decision') }}</button>
+            </form>
+        </section>
+    @endif
+    @if ($canReview && $document->status === 'approved')
+        <section class="sa-section">
+            <h2 class="sa-title">{{ __('Update active authority status') }}</h2>
+            <form method="POST" action="{{ route('secure-access.authority.update', $document) }}">
+                @csrf
+                <label class="sa-label" for="decision">{{ __('Decision') }}</label>
+                <select class="sa-input" id="decision" name="decision" required>
+                    @foreach (['inactive', 'superseded'] as $decision)
+                        <option value="{{ $decision }}">{{ __(ucwords($decision)) }}</option>
+                    @endforeach
+                </select>
+                <label class="sa-label" for="comments">{{ __('Comments / reason (required)') }}</label>
+                <textarea class="sa-input" id="comments" name="comments" required maxlength="10000">{{ old('comments') }}</textarea>
+                <button class="sa-btn sa-mt-4" type="submit">{{ __('Record decision') }}</button>
+            </form>
+        </section>
+    @endif
+    @if ($canShare)
+        <section class="sa-section">
+            <h2 class="sa-title">{{ __('Share a redacted authority summary') }}</h2>
+            <p class="sa-text">{{ __('Share only the minimum information needed. Upload a redacted copy for the selected department; the original authority document is never changed.') }}</p>
+            <p class="sa-text">{{ __('For Medical/Nursing, provide healthcare authority and relevant healthcare limitations. For Finance, provide financial authority and billing/payment limitations.') }}</p>
+            <form method="POST" enctype="multipart/form-data" action="{{ route('secure-access.authority.shares.store', $document) }}">
+                @csrf
+                <label class="sa-label" for="share-department">{{ __('Department') }}</label>
+                <select class="sa-input" id="share-department" name="department" required>
+                    <option value="medical-nursing">{{ __('Medical/Nursing staff') }}</option>
+                    <option value="finance-accounting">{{ __('Finance') }}</option>
+                </select>
+                <label class="sa-label" for="share-summary">{{ __('Authority summary') }}</label>
+                <textarea class="sa-input" id="share-summary" name="summary" maxlength="5000" required>{{ old('summary') }}</textarea>
+                <label class="sa-label" for="share-limitations">{{ __('Relevant limitations') }}</label>
+                <textarea class="sa-input" id="share-limitations" name="limitations" maxlength="5000" required>{{ old('limitations') }}</textarea>
+                <p class="sa-text">{{ __('Effective') }}: {{ $document->effective_at?->toDateTimeString() ?? __('Immediately') }} — {{ __('Expires') }}: {{ $document->expires_at?->toDateTimeString() ?? __('No expiry') }}</p>
+                <label class="sa-label" for="share-copy">{{ __('Redacted document copy (PDF, JPG or PNG; max 10 MB)') }}</label>
+                <input class="sa-input" id="share-copy" type="file" name="document" accept=".pdf,.jpg,.jpeg,.png" required>
+                <label class="sa-label"><input type="checkbox" name="redacted_confirmation" value="1" required> {{ __('I confirm this copy is redacted for the selected department.') }}</label>
+                <button class="sa-btn sa-mt-4" type="submit">{{ __('Share with department') }}</button>
             </form>
         </section>
     @endif

@@ -19,7 +19,8 @@ class AuthorityRevocationEvidenceService
 
     public function canReview(Model $actor, AuthorityRevocationEvidence $evidence): bool
     {
-        return $this->reviews->canReview($actor, $evidence->document)
+        return $this->reviews->isAdministrativeDirector($actor)
+            && $this->reviews->canReview($actor, $evidence->document)
             && (string) $actor->getKey() !== $evidence->submitted_by;
     }
 

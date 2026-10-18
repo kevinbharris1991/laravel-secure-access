@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class TeamAuthorityDocument extends Model
 {
     public const TYPES = ['guardianship', 'conservatorship', 'power_of_attorney'];
-    public const STATUSES = ['pending', 'approved', 'rejected', 'needs_information', 'suspended', 'revoked', 'superseded', 'expired'];
+    public const STATUSES = ['pending', 'approved', 'rejected', 'needs_information', 'inactive', 'suspended', 'revoked', 'superseded', 'expired'];
 
     protected $table = 'secure_access_team_authority_documents';
 
