@@ -50,6 +50,13 @@ class AuthorityReviewService
                     && in_array($relationship->team_member_role, ['professional', 'family_caregiver'], true), 404);
 
                 $previous = null;
+                $latest = $relationship->authorityDocuments()->where('type', $data['type'])->latest('id')->lockForUpdate()->first();
+                if (empty($data['previous_document_id']) && $latest
+                    && in_array($latest->status, ['rejected', 'needs_information'], true)) {
+                    throw ValidationException::withMessages([
+                        'previous_document_id' => __('Resubmit the reviewed document as a new version.'),
+                    ]);
+                }
                 if (! empty($data['previous_document_id'])) {
                     $previous = TeamAuthorityDocument::query()->whereKey($data['previous_document_id'])->lockForUpdate()->first();
                     if (! $previous || (string) $previous->team_member_id !== (string) $relationship->getKey()
@@ -61,6 +68,9 @@ class AuthorityReviewService
                 }
 
                 $path = $file->store('secure-access/authority-documents', 'local');
+                if (! is_string($path) || $path === '') {
+                    throw new \RuntimeException('Authority evidence could not be stored.');
+                }
                 $document = TeamAuthorityDocument::query()->create([
                     'team_member_id' => $relationship->getKey(),
                     'type' => $data['type'],
@@ -93,7 +103,7 @@ class AuthorityReviewService
             'approved_scopes' => ['required_if:decision,approved', 'array'],
             'approved_scopes.*' => ['string', 'distinct'],
             'effective_at' => ['required_if:decision,approved', 'nullable', 'date'],
-            'expires_at' => ['required_if:decision,approved', 'nullable', 'date'],
+            'expires_at' => ['nullable', 'date'],
         ])->validate();
         DB::transaction(function () use ($user, $document, $data) {
             $relationship = TeamMember::query()->whereKey($document->team_member_id)->lockForUpdate()->firstOrFail();
@@ -117,13 +127,32 @@ class AuthorityReviewService
                 if (! $scopes || array_diff($scopes, $allowed)) {
                     throw ValidationException::withMessages(['approved_scopes' => __('Select valid capabilities.')]);
                 }
+                foreach ($scopes as $scope) {
+                    [$module, $action] = explode('.', $scope, 2);
+                    if (in_array($action, ['update', 'pay', 'cancel', 'submit', 'commit'], true)
+                        && ! in_array($module.'.read', $scopes, true)) {
+                        throw ValidationException::withMessages([
+                            'approved_scopes' => __('Record actions require selecting the same module’s read capability. No capabilities are added automatically.'),
+                        ]);
+                    }
+                }
                 $effectiveAt = \Illuminate\Support\Carbon::parse($data['effective_at']);
-                $expiresAt = \Illuminate\Support\Carbon::parse($data['expires_at']);
-                if ($expiresAt->lessThanOrEqualTo($effectiveAt) || $expiresAt->lessThanOrEqualTo(now())) {
+                $expiresAt = isset($data['expires_at']) && $data['expires_at'] !== ''
+                    ? \Illuminate\Support\Carbon::parse($data['expires_at']) : null;
+                if ($expiresAt && ($expiresAt->lessThanOrEqualTo($effectiveAt) || $expiresAt->lessThanOrEqualTo(now()))) {
                     throw ValidationException::withMessages(['expires_at' => __('Expiry must be after the effective date and in the future.')]);
                 }
+                $priorApprovals = $relationship->authorityDocuments()->where('type', $document->type)
+                    ->where('status', 'approved')->lockForUpdate()->get();
+                if ($effectiveAt->greaterThan(now()) && $priorApprovals->contains(fn ($prior) =>
+                    ($prior->effective_at === null || $prior->effective_at->lessThanOrEqualTo(now()))
+                    && ($prior->expires_at === null || $prior->expires_at->greaterThan(now())))) {
+                    throw ValidationException::withMessages([
+                        'effective_at' => __('A replacement for active authority must take effect immediately to avoid interrupting access.'),
+                    ]);
+                }
                 // A failed replacement never changes an existing approval.
-                foreach ($relationship->authorityDocuments()->where('type', $document->type)->where('status', 'approved')->lockForUpdate()->get() as $prior) {
+                foreach ($priorApprovals as $prior) {
                     $prior->forceFill(['status' => 'superseded'])->save();
                     $this->audit($prior, $user, 'superseded', ['from_status' => 'approved', 'to_status' => 'superseded']);
                 }

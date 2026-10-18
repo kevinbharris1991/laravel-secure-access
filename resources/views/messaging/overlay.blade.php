@@ -1,4 +1,4 @@
-@if (\Illuminate\Support\Facades\Route::has('secure-access.messaging.index') && ($messagingUser = \SecureAccess\SecureAccess::guard()->user()) && \SecureAccess\SecureAccess::mfaVerified($messagingUser))
+@if (\Illuminate\Support\Facades\Route::has('secure-access.messaging.index') && ($messagingUser = \SecureAccess\SecureAccess::guard()->user()) && in_array($messagingUser->getAttribute('registration_role'), ['self_advocate', 'family_caregiver', 'professional'], true) && \SecureAccess\SecureAccess::mfaVerified($messagingUser))
     @php($messagingUnread = app(\SecureAccess\Services\TeamMessagingService::class)->unreadCount((string) $messagingUser->getAuthIdentifier()))
     <aside aria-label="{{ __('Team messenger') }}" style="position:fixed;bottom:1rem;right:1rem;z-index:20">
         <a class="sa-btn" id="sa-messages-open" href="{{ route('secure-access.messaging.index') }}">

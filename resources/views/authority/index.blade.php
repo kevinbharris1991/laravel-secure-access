@@ -4,7 +4,7 @@
 @section('header', __('Authority document review'))
 
 @section('content')
-    <p class="sa-text">{{ __('Review submitted evidence before granting specific, time-limited capabilities. Uploading evidence does not grant access.') }}</p>
+    <p class="sa-text">{{ __('Review submitted evidence before granting specific capabilities within the authority’s effective dates. Uploading evidence does not grant access.') }}</p>
     <form method="GET" action="{{ route('secure-access.authority.index') }}">
         <label class="sa-label" for="authority-status">{{ __('Status') }}</label>
         <select class="sa-input" id="authority-status" name="status">

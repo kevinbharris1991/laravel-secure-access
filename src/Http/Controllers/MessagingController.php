@@ -29,7 +29,9 @@ class MessagingController extends Controller
         return response()->view('secure-access::messaging.'.$view, $data + [
             'embedded' => $request->boolean('embedded'),
             'messagingUnread' => $request->boolean('embedded') ? $this->messaging->unreadCount($this->actor()) : 0,
-        ])->header('Cache-Control', 'no-store, private')->header('Referrer-Policy', 'no-referrer');
+        ])->header('Cache-Control', 'no-store, private')
+            ->header('X-Content-Type-Options', 'nosniff')
+            ->header('Referrer-Policy', 'no-referrer');
     }
 
     public function index(Request $request)

@@ -19,7 +19,7 @@
         @if ($document->approved_scopes)
             <h3 class="sa-title">{{ __('Approved capabilities') }}</h3>
             <ul>@foreach ($document->approved_scopes as $scope)<li>{{ $scope }}</li>@endforeach</ul>
-            <p class="sa-text">{{ __('Effective') }}: {{ $document->effective_at?->toDateTimeString() }} — {{ __('Expires') }}: {{ $document->expires_at?->toDateTimeString() }}</p>
+            <p class="sa-text">{{ __('Effective') }}: {{ $document->effective_at?->toDateTimeString() }} — {{ __('Expires') }}: {{ $document->expires_at?->toDateTimeString() ?? __('No expiry') }}</p>
         @endif
     </section>
     <section class="sa-section">
@@ -43,7 +43,9 @@
                     @endforeach
                 </select>
                 @if ($document->status === 'pending')
-                    <p class="sa-text">{{ __('For approval, select only the capabilities supported by the evidence and specify effective and expiry dates.') }}</p>
+                    <p class="sa-text">{{ __('For approval, select only the capabilities supported by the evidence and specify the effective date. Set an expiry date if the authority is time-limited; otherwise leave expiry blank.') }}</p>
+                    <p class="sa-text">{{ __('A replacement for currently active authority must take effect immediately so existing access is not interrupted.') }}</p>
+                    <p class="sa-text">{{ __('Select the same module’s read capability for update, payment, cancellation, submission, or commitment actions so the representative can open the record. No capabilities are added automatically.') }}</p>
                     @foreach ($capabilities as $domain => $scopes)
                         <fieldset class="sa-section">
                             <legend>{{ __(ucwords(str_replace('_', ' ', $domain))) }}</legend>
@@ -54,7 +56,7 @@
                     @endforeach
                     <label class="sa-label" for="effective-at">{{ __('Effective at') }}</label>
                     <input class="sa-input" type="datetime-local" id="effective-at" name="effective_at" value="{{ old('effective_at') }}">
-                    <label class="sa-label" for="expires-at">{{ __('Expires at') }}</label>
+                    <label class="sa-label" for="expires-at">{{ __('Expires at (optional)') }}</label>
                     <input class="sa-input" type="datetime-local" id="expires-at" name="expires_at" value="{{ old('expires_at') }}">
                 @endif
                 <label class="sa-label" for="comments">{{ __('Comments / reason (required; visible only to reviewers and the relationship participants)') }}</label>

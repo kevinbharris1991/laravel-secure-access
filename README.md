@@ -695,7 +695,17 @@ Every delegated operation checks current approval, dates, and active relationshi
 and records the real actor, represented person, authority version, action, and
 record identifier. Revocation takes effect on the next authorization check without
 waiting for another login. The adult's ordinary roles and account access are never
-changed by submission, approval, rejection, or revocation.
+changed by submission, approval, rejection, or a recorded termination of authority.
+
+The adult, linked representative, or an Administrative Director can submit private
+**evidence of revocation or termination**. Submitting evidence does not change
+permissions. A different, uninvolved Administrative Director must review it before
+recording verified termination and removing that document's representative grants.
+Rejected or needs-information evidence remains stored with its review history.
+This records an external change to legal authority; the website does not revoke a
+guardianship, conservatorship, or power of attorney. No blanket account restriction
+needs to be “restored”: the adult keeps their ordinary role-based permissions
+throughout, and independently effective representative grants remain separate.
 
 Authority actions have a metadata-only audit trail. Review comments are encrypted
 and visible only in restricted review history, not copied into audit payloads,

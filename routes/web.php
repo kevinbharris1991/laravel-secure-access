@@ -54,7 +54,9 @@ Route::middleware(config('secure-access.routes.middleware', ['web']))
         });
 
         Route::middleware('secure-access.mfa')->group(function () {
-            require __DIR__.'/messaging.php';
+            Route::middleware('throttle:secure-access')->group(function () {
+                require __DIR__.'/messaging.php';
+            });
             require __DIR__.'/authority.php';
             require __DIR__.'/representative.php';
 

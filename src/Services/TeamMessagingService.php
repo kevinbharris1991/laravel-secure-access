@@ -13,21 +13,35 @@ use SecureAccess\SecureAccess;
 
 class TeamMessagingService
 {
+    private function activeMemberships(): Builder
+    {
+        $users = SecureAccess::newUserQuery();
+        $userModel = $users->getModel();
+
+        return TeamMember::query()->whereNull('ended_at')
+            ->whereExists($users->selectRaw('1')
+                ->whereColumn($userModel->getQualifiedKeyName(), 'secure_access_team_members.team_member_id')
+                ->whereColumn($userModel->qualifyColumn('registration_role'), 'secure_access_team_members.team_member_role')
+                ->toBase());
+    }
+
     public function teamIds(string $actor): Collection
     {
-        $ids = TeamMember::query()->where('team_member_id', $actor)->whereNull('ended_at')
+        $ids = $this->activeMemberships()->where('team_member_id', $actor)
             ->pluck('self_advocate_id');
 
         if (SecureAccess::newUserQuery()->whereKey($actor)->where('registration_role', 'self_advocate')->exists()) {
             $ids->push($actor);
         }
 
-        return $ids->unique()->values();
+        return SecureAccess::newUserQuery()->whereKey($ids->unique()->all())
+            ->where('registration_role', 'self_advocate')->get()
+            ->map(fn ($user) => (string) $user->getKey());
     }
 
     public function memberIds(string $team): Collection
     {
-        return TeamMember::query()->where('self_advocate_id', $team)->whereNull('ended_at')
+        return $this->activeMemberships()->where('self_advocate_id', $team)
             ->pluck('team_member_id')->push($team)->map(fn ($id) => (string) $id)->unique()->values();
     }
 

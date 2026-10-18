@@ -23,9 +23,13 @@ class AuthorityReviewController extends Controller
         $documents = TeamAuthorityDocument::query()->with('relationship')
             ->when($status !== 'all', fn ($query) => $query->where('status', $status))
             ->latest()->paginate(25)->withQueryString();
+        foreach ($documents as $document) {
+            $reviews->audit($document, $user, 'viewed');
+        }
 
         return response()->view('secure-access::authority.index', compact('documents', 'status'))
-            ->header('Cache-Control', 'private, no-store');
+            ->header('Cache-Control', 'private, no-store')
+            ->header('X-Content-Type-Options', 'nosniff');
     }
 
     public function show(TeamAuthorityDocument $document, AuthorityReviewService $reviews): Response
@@ -34,6 +38,7 @@ class AuthorityReviewController extends Controller
         abort_unless($reviews->canView($user, $document), 404);
         $reviews->expire($document->relationship, $user);
         $document->refresh();
+        $reviews->audit($document, $user, 'viewed');
 
         return response()->view('secure-access::authority.show', [
             'document' => $document,
@@ -44,7 +49,8 @@ class AuthorityReviewController extends Controller
                 && ! TeamAuthorityDocument::query()->where('previous_document_id', $document->getKey())->exists(),
             'capabilities' => app(RepresentativeAccess::class)->capabilities(),
             'history' => $document->review_history ?? [],
-        ])->header('Cache-Control', 'private, no-store');
+        ])->header('Cache-Control', 'private, no-store')
+            ->header('X-Content-Type-Options', 'nosniff');
     }
 
     public function update(Request $request, TeamAuthorityDocument $document, AuthorityReviewService $reviews): RedirectResponse

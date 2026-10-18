@@ -2,10 +2,10 @@
 
 namespace SecureAccess\Http\Controllers;
 
-use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -19,7 +19,7 @@ use SecureAccess\Services\AuthorityReviewService;
 
 class TeamController extends Controller
 {
-    public function index(TeamInvitationService $invitations): View
+    public function index(TeamInvitationService $invitations): Response
     {
         $user = $this->authorizeTeamAccess();
         $role = $user->getAttribute('registration_role');
@@ -60,7 +60,7 @@ class TeamController extends Controller
             ->filter(fn (array $member) => $member['name'] !== __('Team member'))
             ->values();
 
-        return view('secure-access::team.index', [
+        return response()->view('secure-access::team.index', [
             'role' => $role,
             'inviteeRoles' => $invitations->allowedInviteeRoles($role),
             'team' => $team,
@@ -79,7 +79,8 @@ class TeamController extends Controller
                 ->latest()
                 ->get(),
             'authorityDocumentTypes' => TeamAuthorityDocument::TYPES,
-        ]);
+        ])->header('Cache-Control', 'private, no-store')
+            ->header('X-Content-Type-Options', 'nosniff');
     }
 
     public function storeAuthorityDocument(Request $request, TeamMember $relationship): RedirectResponse

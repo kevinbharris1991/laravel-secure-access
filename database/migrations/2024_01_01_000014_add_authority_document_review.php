@@ -40,7 +40,9 @@ return new class extends Migration
     {
         Schema::dropIfExists('secure_access_authority_document_audits');
         Schema::table('secure_access_team_authority_documents', function (Blueprint $table) {
-            $table->dropForeign('satad_previous_fk');
+            $table->dropIndex(['status']);
+            $table->dropForeign(Schema::getConnection()->getDriverName() === 'sqlite'
+                ? ['previous_document_id'] : 'satad_previous_fk');
             $table->dropColumn(['status', 'submitted_by', 'approved_scopes', 'effective_at', 'expires_at',
                 'previous_document_id', 'reviewed_by', 'reviewed_at', 'review_history']);
         });

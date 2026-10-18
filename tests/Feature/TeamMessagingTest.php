@@ -175,6 +175,25 @@ class TeamMessagingTest extends TestCase
         $this->get(route('secure-access.messaging.show', $conversation))->assertNotFound();
     }
 
+    public function test_a_stale_relationship_role_does_not_grant_membership_or_allow_participant_selection(): void
+    {
+        $adult = $this->user('adult', 'self_advocate');
+        $member = $this->user('member');
+        $conversation = $this->conversation($adult, [$adult, $member]);
+        $message = $conversation->messages()->create(['sender_id' => (string) $adult->id, 'body' => 'private']);
+        $member->update(['registration_role' => 'professional']);
+        $this->login($member);
+        $this->get(route('secure-access.messaging.index'))->assertOk()->assertDontSee('Conversation #'.$conversation->id);
+        $this->get(route('secure-access.messaging.show', $conversation))->assertNotFound();
+        $this->post(route('secure-access.messaging.send', $conversation), ['body' => 'blocked'])->assertNotFound();
+        $this->post(route('secure-access.messaging.read', $conversation), ['message_ids' => [$message->id]])->assertNotFound();
+        $this->login($adult);
+        $this->post(route('secure-access.messaging.store'), [
+            'self_advocate_id' => (string) $adult->id,
+            'participants' => [(string) $adult->id, (string) $member->id],
+        ])->assertSessionHasErrors('participants');
+    }
+
     public function test_encrypted_messages_are_escaped_and_do_not_enter_urls_notifications_or_flashed_input(): void
     {
         Notification::fake();
@@ -192,7 +211,9 @@ class TeamMessagingTest extends TestCase
         $this->assertArrayNotHasKey('body', $message->toArray());
         $this->get(route('secure-access.messaging.show', $conversation))->assertOk()
             ->assertSee($body)->assertDontSee($body, false)
-            ->assertHeader('Cache-Control', 'no-store, private');
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertHeader('X-Content-Type-Options', 'nosniff')
+            ->assertHeader('Referrer-Policy', 'no-referrer');
         $this->post(route('secure-access.messaging.send', $conversation), ['body' => str_repeat('private', 1500)])
             ->assertSessionHasErrors('body')->assertSessionMissing('_old_input.body');
         Notification::assertNothingSent();
@@ -232,13 +253,16 @@ class TeamMessagingTest extends TestCase
         $own = $conversation->messages()->create(['sender_id' => (string) $member->id, 'body' => 'own']);
         $this->login($member);
         $this->get(route('secure-access.messaging.show', $conversation))->assertOk();
+        $ids = $conversation->messages()->latest('id')->limit(50)->pluck('id')->all();
+        $newer = $conversation->messages()->create(['sender_id' => (string) $adult->id, 'body' => 'unseen newer message']);
         $oldest = $conversation->messages()->oldest('id')->first();
         $this->post(route('secure-access.messaging.read', $conversation), ['message_ids' => [$oldest->id]])->assertUnprocessable();
-        $ids = $conversation->messages()->latest('id')->limit(50)->pluck('id')->all();
+        $this->post(route('secure-access.messaging.read', $conversation), ['message_ids' => [$newer->id]])->assertUnprocessable();
         $this->post(route('secure-access.messaging.read', $conversation), ['message_ids' => $ids])->assertRedirect();
         $this->assertSame(49, TeamMessageRead::count());
         $this->assertDatabaseMissing('secure_access_team_message_reads', ['message_id' => $own->id]);
-        $this->assertSame(2, app(TeamMessagingService::class)->unreadCount((string) $member->id));
+        $this->assertDatabaseMissing('secure_access_team_message_reads', ['message_id' => $newer->id]);
+        $this->assertSame(3, app(TeamMessagingService::class)->unreadCount((string) $member->id));
     }
 
     public function test_read_receipts_cannot_be_replayed_across_conversations(): void
@@ -275,6 +299,21 @@ class TeamMessagingTest extends TestCase
             ->assertDontSee('secret preview');
         $this->get(route('secure-access.messaging.index', ['embedded' => 1]))->assertOk()
             ->assertDontSee('id="sa-messages-dialog"', false);
+    }
+
+    public function test_optional_overlay_does_not_query_team_tables_for_users_without_a_team_role(): void
+    {
+        $user = $this->createUser();
+        $this->login($user);
+        config(['secure-access-acl.enabled' => false]);
+        DB::enableQueryLog();
+        DB::flushQueryLog();
+        $this->get(route('secure-access.dashboard'))->assertOk()->assertDontSee('id="sa-messages-open"', false);
+        $queries = DB::getQueryLog();
+        DB::disableQueryLog();
+        foreach ($queries as $query) {
+            $this->assertStringNotContainsString('secure_access_', $query['query']);
+        }
     }
 
     public function test_messaging_requires_authentication_mfa_and_parent_route_throttling(): void

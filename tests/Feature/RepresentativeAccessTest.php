@@ -105,7 +105,7 @@ class RepresentativeAccessTest extends TestCase
     {
         $url = route('secure-access.representative.module', [$this->relationship, 'bookings']);
         $this->get($url)->assertOk();
-        foreach (['pending', 'rejected', 'needs_information', 'revoked', 'superseded', 'expired'] as $state) {
+        foreach (['pending', 'rejected', 'needs_information', 'revoked', 'suspended', 'superseded', 'expired'] as $state) {
             $this->document->forceFill(['status' => $state])->save();
             $this->get($url)->assertForbidden();
         }
