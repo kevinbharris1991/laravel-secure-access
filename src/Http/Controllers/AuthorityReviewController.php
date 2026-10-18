@@ -9,6 +9,7 @@ use Illuminate\Http\Response;
 use Illuminate\Routing\Controller;
 use SecureAccess\Authorization\RepresentativeAccess;
 use SecureAccess\Models\TeamAuthorityDocument;
+use SecureAccess\Models\AuthorityRevocationEvidence;
 use SecureAccess\SecureAccess;
 use SecureAccess\Services\AuthorityReviewService;
 
@@ -26,8 +27,13 @@ class AuthorityReviewController extends Controller
         foreach ($documents as $document) {
             $reviews->audit($document, $user, 'viewed');
         }
+        $evidenceQueue = AuthorityRevocationEvidence::query()->with('document.relationship')
+            ->where('status', 'pending')->latest()->paginate(25, ['*'], 'evidence_page')->withQueryString();
+        foreach ($evidenceQueue as $evidence) {
+            $reviews->audit($evidence->document, $user, 'revocation_evidence_viewed', ['evidence_id' => $evidence->getKey()]);
+        }
 
-        return response()->view('secure-access::authority.index', compact('documents', 'status'))
+        return response()->view('secure-access::authority.index', compact('documents', 'status', 'evidenceQueue'))
             ->header('Cache-Control', 'private, no-store')
             ->header('X-Content-Type-Options', 'nosniff');
     }
@@ -39,6 +45,10 @@ class AuthorityReviewController extends Controller
         $reviews->expire($document->relationship, $user);
         $document->refresh();
         $reviews->audit($document, $user, 'viewed');
+        $document->load('revocationEvidence');
+        foreach ($document->revocationEvidence as $evidence) {
+            $reviews->audit($document, $user, 'revocation_evidence_viewed', ['evidence_id' => $evidence->getKey()]);
+        }
 
         return response()->view('secure-access::authority.show', [
             'document' => $document,

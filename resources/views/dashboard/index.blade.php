@@ -9,6 +9,10 @@
             <h2 class="sa-title">{{ __('Authority document review') }}</h2>
             <a class="sa-btn" href="{{ route('secure-access.authority.index') }}">{{ __('Review queue & history') }}</a>
         </div>
+        <div class="sa-section">
+            <h2 class="sa-title">{{ __('Nursing teams') }}</h2>
+            <a class="sa-btn" href="{{ route('secure-access.nursing.index') }}">{{ __('Assign or remove a nurse') }}</a>
+        </div>
     @endif
     @if (in_array(\SecureAccess\SecureAccess::guard()->user()?->registration_role, ['family_caregiver', 'professional'], true))
         <div class="sa-section">

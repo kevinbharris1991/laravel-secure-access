@@ -173,6 +173,36 @@ class RepresentativeAccessTest extends TestCase
         $this->get(route('secure-access.representative.module', [$this->relationship, 'booking_balances']))->assertOk();
     }
 
+    public function test_financial_scope_requests_payment_only_for_the_represented_person(): void
+    {
+        $this->document->forceFill(['approved_scopes' => ['booking_balances.read', 'booking_balances.pay']])->save();
+        $balance = $this->booking($this->adult, ['module' => 'booking_balances', 'data' => ['title' => 'Balance', 'amount' => '25.00']]);
+        $unrelated = $this->booking($this->representative, ['module' => 'booking_balances', 'data' => ['title' => 'Other balance', 'amount' => '50.00']]);
+        $this->post(route('secure-access.representative.action', [$this->relationship, 'booking_balances', $unrelated, 'pay']))
+            ->assertNotFound();
+        $url = route('secure-access.representative.action', [$this->relationship, 'booking_balances', $balance, 'pay']);
+        $this->post($url)->assertRedirect();
+        $this->assertSame('pending_payment', $balance->fresh()->data['status']);
+        $this->document->forceFill(['status' => 'revoked'])->save();
+        $this->post($url)->assertForbidden();
+    }
+
+    public function test_delegated_dietary_disclosures_reuse_the_bounded_catering_projection(): void
+    {
+        $this->document->forceFill(['approved_scopes' => ['dietary_needs.create', 'dietary_needs.read']])->save();
+        $this->post(route('secure-access.representative.store', [$this->relationship, 'dietary_needs']), [
+            'title' => 'Dietary disclosure', 'allergens' => 'Peanuts', 'dietary_instructions' => 'Avoid peanuts',
+            'environmental_allergies' => 'Private environmental context', 'drug_allergies' => 'Private clinical context',
+        ])->assertRedirect();
+        $projection = CampRecord::where('module', 'dietary_restrictions')->sole();
+        $this->assertSame((string) $this->adult->id, $projection->owner_id);
+        $this->assertSame('Peanuts', $projection->data['allergens']);
+        $this->assertArrayNotHasKey('environmental_allergies', $projection->data);
+        $this->assertArrayNotHasKey('drug_allergies', $projection->data);
+        $audits = \Illuminate\Support\Facades\DB::table('secure_access_representative_audits')->get();
+        $this->assertStringNotContainsString('Private clinical context', $audits->toJson());
+    }
+
     public function test_public_activity_grant_does_not_expose_drafts_and_commitments_belong_to_the_adult(): void
     {
         $this->document->forceFill(['approved_scopes' => ['activities.read', 'activities.commit', 'activity_commitments.read']])->save();

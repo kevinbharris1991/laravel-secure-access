@@ -59,6 +59,7 @@ Route::middleware(config('secure-access.routes.middleware', ['web']))
             });
             require __DIR__.'/authority.php';
             require __DIR__.'/representative.php';
+            require __DIR__.'/nursing.php';
 
             Route::get('dashboard', DashboardController::class)->name('dashboard');
             Route::get('dashboard/staff', [StaffController::class, 'index'])->name('staff.index');

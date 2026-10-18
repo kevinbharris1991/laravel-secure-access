@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class TeamAuthorityDocument extends Model
 {
     public const TYPES = ['guardianship', 'conservatorship', 'power_of_attorney'];
-    public const STATUSES = ['pending', 'approved', 'rejected', 'needs_information', 'revoked', 'superseded', 'expired'];
+    public const STATUSES = ['pending', 'approved', 'rejected', 'needs_information', 'suspended', 'revoked', 'superseded', 'expired'];
 
     protected $table = 'secure_access_team_authority_documents';
 
@@ -27,6 +27,7 @@ class TeamAuthorityDocument extends Model
         'reviewed_by',
         'reviewed_at',
         'review_history',
+        'termination_basis',
     ];
 
     protected $attributes = ['status' => 'pending'];
@@ -49,5 +50,22 @@ class TeamAuthorityDocument extends Model
     public function audits(): HasMany
     {
         return $this->hasMany(AuthorityDocumentAudit::class, 'document_id');
+    }
+
+    public function revocationEvidence(): HasMany
+    {
+        return $this->hasMany(AuthorityRevocationEvidence::class, 'document_id');
+    }
+
+    public function statusLabel(): string
+    {
+        if ($this->status === 'revoked') {
+            return __('Verified termination recorded');
+        }
+        if ($this->status === 'suspended') {
+            return __('Website representative access suspended');
+        }
+
+        return __(ucwords(str_replace('_', ' ', $this->status)));
     }
 }

@@ -53,6 +53,7 @@ class TeamController extends Controller
                             'type' => $document->type,
                             'name' => $document->file_name,
                             'status' => $document->status,
+                            'status_label' => $document->statusLabel(),
                         ])
                         ->all(),
                 ];
@@ -79,6 +80,11 @@ class TeamController extends Controller
                 ->latest()
                 ->get(),
             'authorityDocumentTypes' => TeamAuthorityDocument::TYPES,
+            'endedAuthorityDocuments' => TeamAuthorityDocument::query()
+                ->whereHas('relationship', fn ($query) => $query->whereNotNull('ended_at')
+                    ->where(fn ($parties) => $parties->where('self_advocate_id', (string) $user->getKey())
+                        ->orWhere('team_member_id', (string) $user->getKey())))
+                ->latest()->paginate(25, ['*'], 'authority_history_page')->withQueryString(),
         ])->header('Cache-Control', 'private, no-store')
             ->header('X-Content-Type-Options', 'nosniff');
     }
@@ -216,7 +222,8 @@ class TeamController extends Controller
 
         app(AuthorityReviewService::class)->endRelationship($user, $relationship);
 
-        return redirect()->route('secure-access.team.index')->with('status', __('Team member removed.'));
+        return redirect()->route('secure-access.team.index')
+            ->with('status', __('Website relationship ended. Legal authority has not been changed.'));
     }
 
     protected function authorizeTeamAccess(): Model

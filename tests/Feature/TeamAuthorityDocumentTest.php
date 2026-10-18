@@ -127,7 +127,7 @@ class TeamAuthorityDocumentTest extends TestCase
         $this->assertSame([], Storage::disk('local')->allFiles());
     }
 
-    public function test_removing_team_relationship_preserves_evidence_and_revokes_pending_documents(): void
+    public function test_removing_team_relationship_preserves_evidence_and_suspends_pending_documents(): void
     {
         Storage::fake('local');
         $professional = $this->teamUser('professional', 'professional');
@@ -150,7 +150,7 @@ class TeamAuthorityDocumentTest extends TestCase
             ->assertRedirect(route('secure-access.team.index'));
 
         $this->assertSame(1, TeamAuthorityDocument::count());
-        $this->assertSame('revoked', TeamAuthorityDocument::firstOrFail()->status);
+        $this->assertSame('suspended', TeamAuthorityDocument::firstOrFail()->status);
         $this->assertNotNull($relationship->fresh()->ended_at);
         Storage::disk('local')->assertExists($path);
     }

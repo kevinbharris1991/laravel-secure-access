@@ -22,6 +22,21 @@ return new class extends Migration
             $table->string('reviewed_by')->nullable();
             $table->timestamp('reviewed_at')->nullable();
             $table->text('review_history')->nullable();
+            $table->string('termination_basis')->nullable();
+        });
+        Schema::create('secure_access_authority_revocation_evidence', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('document_id')
+                ->constrained('secure_access_team_authority_documents', 'id', 'saare_document_fk');
+            $table->string('submitted_by');
+            $table->string('status')->default('pending');
+            $table->string('path');
+            $table->string('file_name');
+            $table->text('comments')->nullable();
+            $table->string('reviewed_by')->nullable();
+            $table->timestamp('reviewed_at')->nullable();
+            $table->text('review_history')->nullable();
+            $table->timestamps();
         });
         Schema::create('secure_access_authority_document_audits', function (Blueprint $table) {
             $table->id();
@@ -39,12 +54,13 @@ return new class extends Migration
     public function down(): void
     {
         Schema::dropIfExists('secure_access_authority_document_audits');
+        Schema::dropIfExists('secure_access_authority_revocation_evidence');
         Schema::table('secure_access_team_authority_documents', function (Blueprint $table) {
             $table->dropIndex(['status']);
             $table->dropForeign(Schema::getConnection()->getDriverName() === 'sqlite'
                 ? ['previous_document_id'] : 'satad_previous_fk');
             $table->dropColumn(['status', 'submitted_by', 'approved_scopes', 'effective_at', 'expires_at',
-                'previous_document_id', 'reviewed_by', 'reviewed_at', 'review_history']);
+                'previous_document_id', 'reviewed_by', 'reviewed_at', 'review_history', 'termination_basis']);
         });
         Schema::table('secure_access_team_members', fn (Blueprint $table) => $table->dropColumn('ended_at'));
     }

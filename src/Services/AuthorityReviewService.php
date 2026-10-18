@@ -98,7 +98,7 @@ class AuthorityReviewService
     public function review(Model $user, TeamAuthorityDocument $document, array $data): void
     {
         $data = Validator::make($data, [
-            'decision' => ['required', Rule::in(['approved', 'rejected', 'needs_information', 'revoked'])],
+            'decision' => ['required', Rule::in(['approved', 'rejected', 'needs_information'])],
             'comments' => ['required', 'string', 'max:10000'],
             'approved_scopes' => ['required_if:decision,approved', 'array'],
             'approved_scopes.*' => ['string', 'distinct'],
@@ -114,7 +114,7 @@ class AuthorityReviewService
             $document->refresh();
             $decision = $data['decision'];
             if ($relationship->ended_at !== null
-                || ($decision === 'revoked' ? $document->status !== 'approved' : $document->status !== 'pending')) {
+                || $document->status !== 'pending') {
                 throw ValidationException::withMessages(['decision' => __('This document cannot receive that decision.')]);
             }
             if (trim($data['comments'] ?? '') === '') {
@@ -191,7 +191,11 @@ class AuthorityReviewService
     {
         DB::transaction(function () use ($user, $relationship) {
             $relationship = TeamMember::query()->whereKey($relationship->getKey())->lockForUpdate()->firstOrFail();
-            abort_unless(in_array((string) $user->getKey(), [$relationship->self_advocate_id, $relationship->team_member_id], true), 404);
+            abort_unless(
+                in_array((string) $user->getKey(), [$relationship->self_advocate_id, $relationship->team_member_id], true)
+                    || ($relationship->getAttribute('nurse_assigned_by') !== null && $this->isReviewer($user)),
+                404
+            );
             if ($relationship->ended_at !== null) {
                 return;
             }
@@ -199,8 +203,8 @@ class AuthorityReviewService
             $relationship->forceFill(['ended_at' => now()])->save();
             foreach ($relationship->authorityDocuments()->whereIn('status', ['approved', 'pending', 'needs_information'])->lockForUpdate()->get() as $document) {
                 $from = $document->status;
-                $document->forceFill(['status' => 'revoked'])->save();
-                $this->audit($document, $user, 'relationship_ended', ['from_status' => $from, 'to_status' => 'revoked']);
+                $document->forceFill(['status' => 'suspended', 'termination_basis' => 'relationship_ended'])->save();
+                $this->audit($document, $user, 'relationship_ended', ['from_status' => $from, 'to_status' => 'suspended']);
             }
             AuthorityDocumentAudit::query()->create([
                 'team_member_id' => $relationship->getKey(), 'actor_id' => (string) $user->getKey(),
@@ -214,7 +218,7 @@ class AuthorityReviewService
         AuthorityDocumentAudit::query()->create([
             'document_id' => $document->getKey(), 'team_member_id' => $document->team_member_id,
             'actor_id' => $actor ? (string) $actor->getKey() : null, 'action' => $action,
-            'metadata' => array_intersect_key($metadata, array_flip(['from_status', 'to_status'])),
+            'metadata' => array_intersect_key($metadata, array_flip(['from_status', 'to_status', 'evidence_id'])),
         ]);
     }
 }

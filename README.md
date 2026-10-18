@@ -668,6 +668,16 @@ actually displayed, and ending a team relationship removes messaging access.
 Messenger is not an emergency service. No authority approval automatically reveals
 the adult's private conversations.
 
+Administrative Directors can use **Nursing teams** to assign or remove an existing
+Medical & Nursing account from a self-advocate's team. Nurses use their own
+MFA-authenticated accounts; assignment does not change anyone's registration role
+or grant representative authority. The assigning Director becomes a messaging
+contact for that team. Nurses, the Director, and other team members can start
+conversations with explicitly selected participants; assignment never reveals
+existing private threads. Removal ends team messaging access and preserves history
+and original authority files. Current nursing/Director group membership is checked
+for assignment-derived messaging access.
+
 Family/caregiver and professional team members submit PDF/JPG/PNG authority files
 (maximum 10 MB) from **Your team**. Administrative Directors use **Authority
 document review** to verify specific website capabilities, request information,
@@ -678,14 +688,15 @@ Rejected and needs-information submissions cannot be approved in place: upload a
 new version linked to that submission. Each version retains its original private
 file and history. A rejected replacement does not cancel another still-effective
 approval. Removing a team relationship ends access and preserves its documents;
-joining again does not reactivate revoked authority.
+joining again does not reactivate suspended or terminated approvals.
 
 Approval selects exact `module.action` capabilities grouped into administrative,
 healthcare, financial, and messaging/contact domains, with effective and optional
 expiration dates. These are **person-facing** capabilities, not staff/system
 privileges. Healthcare disclosure authority does not expose internal clinical
-notes; contact authority does not bypass conversation participation. Select read
-along with update or workflow actions when the representative needs a record UI.
+notes; contact authority does not bypass conversation participation. Approval of
+update or workflow capabilities requires explicitly selecting the same module's
+read capability; the system never adds that permission implicitly.
 Payment actions only request payment, as in the existing guest workflow.
 
 The **Representative workspace** uses the representative's own MFA-authenticated
@@ -693,8 +704,8 @@ account and clearly identifies whom they act for. Records remain owned by the
 represented person; clients cannot supply another owner or publish records.
 Every delegated operation checks current approval, dates, and active relationship,
 and records the real actor, represented person, authority version, action, and
-record identifier. Revocation takes effect on the next authorization check without
-waiting for another login. The adult's ordinary roles and account access are never
+record identifier. A verified termination takes effect on the next authorization
+check without waiting for another login. The adult's ordinary roles and account access are never
 changed by submission, approval, rejection, or a recorded termination of authority.
 
 The adult, linked representative, or an Administrative Director can submit private

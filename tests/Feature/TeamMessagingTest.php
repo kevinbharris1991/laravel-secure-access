@@ -4,6 +4,7 @@ namespace SecureAccess\Tests\Feature;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
+use SecureAccess\Models\AccessGroup;
 use SecureAccess\Models\TeamConversation;
 use SecureAccess\Models\TeamMember;
 use SecureAccess\Models\TeamMessage;
@@ -15,7 +16,7 @@ use SecureAccess\Tests\TestCase;
 
 class TeamMessagingTest extends TestCase
 {
-    private function user(string $name, string $role = 'family_caregiver'): User
+    private function user(string $name, ?string $role = 'family_caregiver'): User
     {
         return $this->createUser([
             'name' => $name,
@@ -54,6 +55,205 @@ class TeamMessagingTest extends TestCase
             (string) $adult->id,
             array_map(fn ($member) => (string) $member->id, $members),
         );
+    }
+
+    private function staff(string $name, string $group, ?string $role = null): User
+    {
+        $user = $this->user($name, $role);
+        $user->accessGroups()->attach(AccessGroup::where('key', $group)->sole());
+
+        return $user;
+    }
+
+    private function assignNurse(User $adult, User $nurse, User $director, ?TeamMember $existing = null): TeamMember
+    {
+        $relationship = $existing ?? TeamMember::create([
+            'self_advocate_id' => (string) $adult->id,
+            'team_member_id' => (string) $nurse->id,
+            'team_member_role' => 'nurse',
+        ]);
+        DB::table('secure_access_team_members')->where('id', $relationship->id)->update([
+            'nurse_assigned_by' => (string) $director->id,
+            'nurse_assigned_at' => now(),
+        ]);
+
+        return $relationship->fresh();
+    }
+
+    public function test_assigned_nurse_and_assigning_director_can_explicitly_converse_without_registration_roles(): void
+    {
+        $adult = $this->user('adult', 'self_advocate');
+        $nurse = $this->staff('nurse', 'medical-nursing');
+        $director = $this->staff('director', 'administrative-director');
+        $this->assignNurse($adult, $nurse, $director);
+        $this->login($director);
+        $this->get(route('secure-access.messaging.create'))->assertOk()->assertSee('nurse');
+        $this->post(route('secure-access.messaging.store'), [
+            'self_advocate_id' => (string) $adult->id,
+            'participants' => [(string) $director->id, (string) $nurse->id],
+        ])->assertRedirect();
+        $conversation = TeamConversation::sole();
+        $this->assertEqualsCanonicalizing([$director->id, $nurse->id], $conversation->participants->modelKeys());
+        $this->post(route('secure-access.messaging.send', $conversation), ['body' => 'staff conversation'])->assertRedirect();
+        $this->login($nurse);
+        $this->get(route('secure-access.messaging.show', $conversation))->assertOk()
+            ->assertSee('staff conversation')->assertSee('id="sa-messages-open"', false);
+        $this->post(route('secure-access.messaging.read', $conversation), ['message_ids' => [TeamMessage::sole()->id]])->assertRedirect();
+        $this->post(route('secure-access.messaging.send', $conversation), ['body' => 'nurse reply'])->assertRedirect();
+        $this->assertSame((string) $nurse->id, TeamMessage::latest('id')->first()->sender_id);
+        $this->login($director);
+        $this->get(route('secure-access.messaging.index'))->assertOk()->assertSee('id="sa-messages-open"', false);
+        $this->assertNull($nurse->fresh()->registration_role);
+        $this->assertNull($director->fresh()->registration_role);
+    }
+
+    public function test_nurse_assignment_does_not_add_anyone_to_existing_threads_or_allow_unassigned_staff(): void
+    {
+        $adult = $this->user('adult', 'self_advocate');
+        $caregiver = $this->user('caregiver');
+        $old = $this->conversation($adult, [$adult, $caregiver]);
+        $message = $old->messages()->create(['sender_id' => (string) $adult->id, 'body' => 'old private thread']);
+        $nurse = $this->staff('nurse', 'medical-nursing');
+        $director = $this->staff('director', 'administrative-director');
+        $otherDirector = $this->staff('otherdirector', 'administrative-director');
+        $otherNurse = $this->staff('othernurse', 'medical-nursing');
+        $this->assignNurse($adult, $nurse, $director);
+        foreach ([$nurse, $director, $otherNurse, $otherDirector] as $actor) {
+            $this->login($actor);
+            $this->get(route('secure-access.messaging.index'))->assertOk()->assertDontSee('Conversation #'.$old->id);
+            $this->get(route('secure-access.messaging.show', $old))->assertNotFound();
+            $this->post(route('secure-access.messaging.send', $old), ['body' => 'blocked'])->assertNotFound();
+            $this->post(route('secure-access.messaging.read', $old), ['message_ids' => [$message->id]])->assertNotFound();
+        }
+        $this->login($otherDirector);
+        $this->post(route('secure-access.messaging.store'), [
+            'self_advocate_id' => (string) $adult->id,
+            'participants' => [(string) $otherDirector->id, (string) $nurse->id],
+        ])->assertNotFound();
+        $this->login($director);
+        $this->post(route('secure-access.messaging.store'), [
+            'self_advocate_id' => (string) $adult->id,
+            'participants' => [(string) $director->id, (string) $otherNurse->id],
+        ])->assertSessionHasErrors('participants');
+        $this->assertSame(2, $old->participants()->count());
+    }
+
+    public function test_ending_assignment_removes_nurse_and_assigning_director_conversation_access(): void
+    {
+        $adult = $this->user('adult', 'self_advocate');
+        $nurse = $this->staff('nurse', 'medical-nursing');
+        $director = $this->staff('director', 'administrative-director');
+        $assignment = $this->assignNurse($adult, $nurse, $director);
+        $conversation = app(TeamMessagingService::class)->create(
+            (string) $director->id, (string) $adult->id, [(string) $director->id, (string) $nurse->id],
+        );
+        $message = $conversation->messages()->create(['sender_id' => (string) $director->id, 'body' => 'before removal']);
+        $this->login($nurse);
+        $this->get(route('secure-access.messaging.show', $conversation))->assertOk();
+        DB::table('secure_access_team_members')->where('id', $assignment->id)->update(['ended_at' => now()]);
+        foreach ([$nurse, $director] as $actor) {
+            $this->login($actor);
+            $this->get(route('secure-access.messaging.index'))->assertOk()->assertDontSee('Conversation #'.$conversation->id);
+            $this->get(route('secure-access.messaging.show', $conversation))->assertNotFound();
+            $this->post(route('secure-access.messaging.send', $conversation), ['body' => 'blocked'])->assertNotFound();
+            $this->post(route('secure-access.messaging.read', $conversation), ['message_ids' => [$message->id]])->assertNotFound();
+            $this->assertSame(0, app(TeamMessagingService::class)->unreadCount((string) $actor->id));
+        }
+    }
+
+    public function test_revoking_exact_nurse_or_director_group_removes_assignment_derived_access_immediately(): void
+    {
+        $adult = $this->user('adult', 'self_advocate');
+        $nurse = $this->staff('nurse', 'medical-nursing');
+        $director = $this->staff('director', 'administrative-director');
+        $this->assignNurse($adult, $nurse, $director);
+        $conversation = app(TeamMessagingService::class)->create(
+            (string) $director->id, (string) $adult->id, [(string) $director->id, (string) $nurse->id],
+        );
+        $message = $conversation->messages()->create(['sender_id' => (string) $director->id, 'body' => 'private']);
+        foreach ([[$director, 'administrative-director'], [$nurse, 'medical-nursing']] as [$actor, $group]) {
+            $actor->load('accessGroups');
+            $groupId = AccessGroup::where('key', $group)->value('id');
+            $actor->accessGroups()->detach($groupId);
+            $this->login($actor);
+            $this->get(route('secure-access.messaging.index'))->assertOk()->assertDontSee('Conversation #'.$conversation->id);
+            $this->get(route('secure-access.messaging.show', $conversation))->assertNotFound();
+            $this->post(route('secure-access.messaging.send', $conversation), ['body' => 'blocked'])->assertNotFound();
+            $this->post(route('secure-access.messaging.read', $conversation), ['message_ids' => [$message->id]])->assertNotFound();
+            $this->assertNotContains((string) $actor->id, app(TeamMessagingService::class)->memberIds((string) $adult->id)->all());
+            $actor->accessGroups()->attach($groupId);
+        }
+    }
+
+    public function test_independent_voluntary_membership_survives_revocation_of_staff_group(): void
+    {
+        $adult = $this->user('adult', 'self_advocate');
+        $nurse = $this->staff('nurse', 'medical-nursing', 'family_caregiver');
+        $director = $this->staff('director', 'administrative-director', 'professional');
+        $voluntaryNurse = $this->link($adult, $nurse);
+        $this->link($adult, $director);
+        $this->assignNurse($adult, $nurse, $director, $voluntaryNurse);
+        $conversation = app(TeamMessagingService::class)->create(
+            (string) $director->id, (string) $adult->id, [(string) $director->id, (string) $nurse->id],
+        );
+        $nurse->accessGroups()->detach();
+        $director->accessGroups()->detach();
+        foreach ([$nurse, $director] as $actor) {
+            $this->login($actor);
+            $this->get(route('secure-access.messaging.show', $conversation))->assertOk();
+            $this->post(route('secure-access.messaging.send', $conversation), ['body' => 'voluntary membership'])->assertRedirect();
+        }
+        $this->assertSame('family_caregiver', $voluntaryNurse->fresh()->team_member_role);
+    }
+
+    public function test_assignment_access_requires_exact_staff_groups_and_correct_membership_model_type(): void
+    {
+        $adult = $this->user('adult', 'self_advocate');
+        $nurse = $this->user('nurse', null);
+        $director = $this->staff('director', 'administrative-director');
+        DB::table('secure_access_memberships')->insert([
+            'group_id' => AccessGroup::where('key', 'medical-nursing')->value('id'),
+            'member_type' => 'another-user-model',
+            'member_id' => (string) $nurse->id,
+        ]);
+        $this->assignNurse($adult, $nurse, $director);
+        $service = app(TeamMessagingService::class);
+        $this->assertTrue($service->teamIds((string) $nurse->id)->isEmpty());
+        $this->assertTrue($service->teamIds((string) $director->id)->isEmpty());
+        $nurse->accessGroups()->attach(AccessGroup::where('key', 'medical-nursing')->sole());
+        $conversation = $service->create(
+            (string) $director->id, (string) $adult->id, [(string) $director->id, (string) $nurse->id],
+        );
+        $director->accessGroups()->detach();
+        $director->accessGroups()->attach(AccessGroup::where('key', 'executive-director')->sole());
+        $this->login($director);
+        $this->get(route('secure-access.messaging.show', $conversation))->assertNotFound();
+        $this->assertFalse($service->canUseOverlay($director));
+        $this->assertNotContains((string) $director->id, $service->memberIds((string) $adult->id)->all());
+    }
+
+    public function test_acl_disable_removes_staff_assignment_access_and_overlay_without_group_queries(): void
+    {
+        $adult = $this->user('adult', 'self_advocate');
+        $nurse = $this->staff('nurse', 'medical-nursing');
+        $director = $this->staff('director', 'administrative-director');
+        $this->assignNurse($adult, $nurse, $director);
+        $conversation = app(TeamMessagingService::class)->create(
+            (string) $director->id, (string) $adult->id, [(string) $director->id, (string) $nurse->id],
+        );
+        config(['secure-access-acl.enabled' => false]);
+        foreach ([$nurse, $director] as $actor) {
+            $this->login($actor);
+            DB::enableQueryLog();
+            DB::flushQueryLog();
+            $this->get(route('secure-access.dashboard'))->assertOk()->assertDontSee('id="sa-messages-open"', false);
+            $queries = DB::getQueryLog();
+            DB::disableQueryLog();
+            foreach ($queries as $query) {
+                $this->assertStringNotContainsString('secure_access_', $query['query']);
+            }
+            $this->get(route('secure-access.messaging.show', $conversation))->assertNotFound();
+        }
     }
 
     public function test_explicit_subset_can_create_one_to_one_and_group_conversations_without_adding_the_adult(): void

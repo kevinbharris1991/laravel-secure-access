@@ -10,7 +10,10 @@
     @endif
     <section class="sa-section">
         <h2 class="sa-title">{{ __(ucwords(str_replace('_', ' ', $document->type))) }}</h2>
-        <p class="sa-text">{{ __('Status') }}: {{ __(ucwords(str_replace('_', ' ', $document->status))) }}</p>
+        <p class="sa-text">{{ __('Status') }}: {{ $document->statusLabel() }}</p>
+        @if ($document->status === 'suspended')
+            <p class="sa-text">{{ __('Website representative access is suspended. This is not a determination that legal authority has been revoked or terminated.') }}</p>
+        @endif
         <p class="sa-text">{{ __('Submission does not grant authority. Only approved capabilities within their effective dates permit representative access.') }}</p>
         <a class="sa-link" href="{{ route('secure-access.team.authority-documents.download', [$document->team_member_id, $document]) }}">{{ __('Download evidence') }}</a>
         @if ($document->previous_document_id)
@@ -31,14 +34,14 @@
             <p class="sa-text">{{ __('No reviews yet.') }}</p>
         @endforelse
     </section>
-    @if ($canReview && in_array($document->status, ['pending', 'approved'], true))
+    @if ($canReview && $document->status === 'pending')
         <section class="sa-section">
             <h2 class="sa-title">{{ __('Record decision') }}</h2>
             <form method="POST" action="{{ route('secure-access.authority.update', $document) }}">
                 @csrf
                 <label class="sa-label" for="decision">{{ __('Decision') }}</label>
                 <select class="sa-input" id="decision" name="decision" required>
-                    @foreach ($document->status === 'approved' ? ['revoked'] : ['approved', 'rejected', 'needs_information'] as $decision)
+                    @foreach (['approved', 'rejected', 'needs_information'] as $decision)
                         <option value="{{ $decision }}" @selected(old('decision') === $decision)>{{ __(ucwords(str_replace('_', ' ', $decision))) }}</option>
                     @endforeach
                 </select>
@@ -59,6 +62,26 @@
                     <label class="sa-label" for="expires-at">{{ __('Expires at (optional)') }}</label>
                     <input class="sa-input" type="datetime-local" id="expires-at" name="expires_at" value="{{ old('expires_at') }}">
                 @endif
+                <section class="sa-section">
+                    <h2 class="sa-title">{{ __('Evidence of legal revocation or termination') }}</h2>
+                    <p class="sa-text">{{ __('This website cannot revoke guardianship, conservatorship, or power of attorney. Parties may submit evidence that legal authority has ended. Submission alone does not change access. An independent Administrative Director must verify the evidence before updating the records and ending this document’s representative permissions. The represented adult’s ordinary permissions are never removed.') }}</p>
+                    @forelse ($document->revocationEvidence->sortByDesc('id') as $evidence)
+                        <p class="sa-text">
+                            <a class="sa-link" href="{{ route('secure-access.authority.evidence.show', $evidence) }}">{{ __('Evidence #:id', ['id' => $evidence->getKey()]) }}</a>
+                            — {{ __(ucwords(str_replace('_', ' ', $evidence->status))) }}
+                        </p>
+                    @empty
+                        <p class="sa-text">{{ __('No termination evidence has been submitted.') }}</p>
+                    @endforelse
+                    <form method="POST" enctype="multipart/form-data" action="{{ route('secure-access.authority.evidence.store', $document) }}">
+                        @csrf
+                        <label class="sa-label" for="revocation-evidence">{{ __('Evidence file (PDF, JPG or PNG; max 10 MB)') }}</label>
+                        <input class="sa-input" id="revocation-evidence" type="file" name="document" accept=".pdf,.jpg,.jpeg,.png" required>
+                        <label class="sa-label" for="evidence-comments">{{ __('Evidence comments (optional; visible only to document parties and reviewers)') }}</label>
+                        <textarea class="sa-input" id="evidence-comments" name="comments" maxlength="10000">{{ old('comments') }}</textarea>
+                        <button class="sa-btn sa-mt-4" type="submit">{{ __('Submit termination evidence for review') }}</button>
+                    </form>
+                </section>
                 <label class="sa-label" for="comments">{{ __('Comments / reason (required; visible only to reviewers and the relationship participants)') }}</label>
                 <textarea class="sa-input" id="comments" name="comments" required maxlength="10000">{{ old('comments') }}</textarea>
                 <button class="sa-btn sa-mt-4" type="submit">{{ __('Record decision') }}</button>
